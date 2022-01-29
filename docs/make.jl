@@ -1,7 +1,9 @@
 using CalibrationAnalysis
 using Documenter
 
-DocMeta.setdocmeta!(CalibrationAnalysis, :DocTestSetup, :(using CalibrationAnalysis); recursive=true)
+DocMeta.setdocmeta!(
+    CalibrationAnalysis, :DocTestSetup, :(using CalibrationAnalysis); recursive=true
+)
 
 makedocs(;
     modules=[CalibrationAnalysis],
@@ -13,14 +15,9 @@ makedocs(;
         canonical="https://devmotion.github.io/CalibrationAnalysis.jl",
         assets=String[],
     ),
-    pages=[
-        "Home" => "index.md",
-    ],
+    pages=["Home" => "index.md"],
     checkdocs=:exports,
     strict=true,
 )
 
-deploydocs(;
-    repo="github.com/devmotion/CalibrationAnalysis.jl",
-    devbranch="main",
-)
+deploydocs(; repo="github.com/devmotion/CalibrationAnalysis.jl", devbranch="main")
