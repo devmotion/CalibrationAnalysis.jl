@@ -20,4 +20,6 @@ makedocs(;
     strict=true,
 )
 
-deploydocs(; repo="github.com/devmotion/CalibrationAnalysis.jl", devbranch="main")
+deploydocs(;
+    repo="github.com/devmotion/CalibrationAnalysis.jl", push_preview=true, devbranch="main"
+)
