@@ -1,3 +1,5 @@
 [deps]
-CalibrationAnalysis = "f96f8458-5c05-4a28-b3fd-d398aeb95222"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+
+[compat]
+Documenter = "0.28"

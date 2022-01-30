@@ -15,5 +15,5 @@ jobs:
           COMPATHELPER_PRIV: ${{ secrets.DOCUMENTER_KEY }}
         run: |
           using CompatHelper
-          CompatHelper.main()
+          CompatHelper.main(; subdirs=["", "test", "docs"])
         shell: julia --color=yes {0}
