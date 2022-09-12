@@ -1,0 +1,21 @@
+# Conda
+/.CondaPkg/
+
+# Quarto output
+/.cache/
+/.local/
+/paper_files/
+/jss.bst
+/jss.cls
+/jsslogo.jpg
+/paper.tex
+
+# LaTeX output
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+/paper.pdf

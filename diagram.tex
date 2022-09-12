@@ -1,0 +1,53 @@
+\begin{tikzpicture}[
+    mymatrix/.style={
+      matrix of math nodes,
+      row sep=-\pgflinewidth,
+      column sep=-\pgflinewidth,
+      nodes={draw, minimum size=2em,anchor=center},
+      nodes in empty cells,
+    },
+  ]
+  \matrix (A) [mymatrix, font={\small}] {%
+    1 & 2 & \cdots & (b - 1)m + 1 & (b - 1)m + 2 & \cdots & bm - 1 & bm & \cdots & \lfloor n / m \rfloor m \\
+  };
+  \node [yshift=1em, font={\bfseries}] at (A.north) {dataset};
+  \matrix (mymat) [mymatrix,
+    column 1/.append style={nodes={draw=none,inner xsep=0.5cm}},
+    row 6/.append style={nodes={draw=none,rotate=90}},
+    anchor=north west,
+    font={\small},
+  ] at ([yshift=-1.5cm,xshift=-1cm]A.south west) {%
+    (b - 1)m + 1 &&&\cdots&& \\
+    (b - 1)m + 2 &&&\cdots&& \\
+    \rvdots &\rvdots&\rvdots&\rddots&\rvdots&\rvdots \\
+    bm - 1 &&&\cdots&& \\
+    bm &&&\cdots&& \\
+    & (b - 1)m + 1 & (b - 1) m + 2 & \rvdots & bm - 1 & bm \\
+  };
+  \node [yshift=1em, font={\bfseries}] at (mymat-1-4.north) {unbiased};
+  \draw (A-1-4.south west) -- (mymat-1-2.north west);
+  \draw (A-1-8.south east) -- (mymat-1-6.north east);
+  \matrix (mymat2) [mymatrix,
+    row 6/.append style={nodes={draw=none,rotate=90}},
+    anchor=north east,
+    font={\small},
+  ] at ([yshift=-1.5cm,xshift=0.5cm]A.south east) {%
+    &&\cdots&& \\
+    &&\cdots&& \\
+    \rvdots&\rvdots&\rddots&\rvdots&\rvdots \\
+    &&\cdots&& \\
+    &&\cdots&& \\
+    (b - 1)m + 1 & (b - 1) m + 2 & \rvdots & bm - 1 & bm \\
+  };
+  \node [yshift=1em, font={\bfseries}] at (mymat2-1-3.north) {biased};
+  \draw (A-1-4.south west) -- (mymat2-1-1.north west);
+  \draw (A-1-8.south east) -- (mymat2-1-5.north east);
+\begin{scope}[on background layer]
+    \node[fit=(mymat-1-3)(mymat-1-6), fill=gray!20, inner sep=0pt] {};
+    \node[fit=(mymat-2-4)(mymat-2-6), fill=gray!20, inner sep=0pt] {};
+    \node[fit=(mymat-3-5)(mymat-3-6), fill=gray!20, inner sep=0pt] {};
+    \node[fit=(mymat-4-6), fill=gray!20, inner sep=0pt] {};
+    %\node[fit=(A-1-4)(A-1-8), fill=gray!20, inner sep=0pt] {};
+    \node[fit=(mymat2-1-1)(mymat2-5-5), fill=gray!20, inner sep=0pt] {};
+\end{scope}
+\end{tikzpicture}

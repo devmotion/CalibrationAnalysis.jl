@@ -1,0 +1,1861 @@
+---
+title: "CalibrationAnalysis.jl: Calibration Analysis of Probabilistic Models in Julia"
+title-formatted: "[CalibrationAnalysis.jl]{.pkg}: Calibration Analysis of Probabilistic Models in [Julia]{.proglang}"
+format:
+    jss-latex:
+        tbl-colwidths: false
+        fig-format: pdf
+        journal:
+          cite-shortnames: true
+        header-includes: |
+          \usepackage{mathtools}
+          \usepackage{microtype}
+          \usepackage{tikz}
+          \usetikzlibrary{matrix,fit,backgrounds}
+          % ~\vdots~ and ~\ddots~ without additional vertical space.
+          % Copied from https://tex.stackexchange.com/a/112212
+          \makeatletter
+          \DeclareRobustCommand{\rvdots}{%
+          \vbox{
+            \baselineskip4\p@\lineskiplimit\z@
+            \kern-\p@
+            \hbox{.}\hbox{.}\hbox{.}
+          }}
+          \DeclareRobustCommand{\rddots}{%
+          \mathinner{\mkern1mu\raise7\p@
+          \vbox{\kern-\p@\hbox{.}}\mkern2mu
+          \raise4\p@\hbox{.}\mkern2mu\raise\p@\hbox{.}\mkern1mu
+          }}
+          \makeatother
+          \newcommand{\entropy}{\ensuremath{\operatorname{\mathsf{H}}}}
+          \newcommand{\ECE}{\ensuremath{\operatorname{\mathsf{ECE}}}}
+          \newcommand{\KCE}{\ensuremath{\operatorname{\mathsf{KCE}}}}
+author:
+  - name: David Widmann
+    orcid: 0000-0001-9282-053X
+    email: david.widmann@it.uu.se
+    affiliations:
+      - ref: UU
+  - name: Dave Zachariah
+    email: dave.zachariah@it.uu.se
+    affiliations:
+      - ref: UU
+  - name: Fredrik Lindsten
+    orcid: 0000-0003-3749-5820
+    email: fredrik.lindsten@liu.se
+    affiliations:
+      - ref: LiU      
+affiliations:
+  - id: UU
+    name: Uppsala University
+    department: Department of Information Technology
+    city: Uppsala
+    country: Sweden
+  - id: LiU
+    name: Linköping University
+    department: Division of Statistics and Machine Learning
+    city: Linköping
+    country: Sweden
+abstract: |
+  A probabilistic predictive model tries to capture the uncertainty in its predictions by returning probability distributions of predictions rather than mere point estimates.
+  In safety-critical applications it is particularly important that the uncertainty predicted by the model corresponds to empirically observed uncertainties.
+  Such models, whose predictions are consistent with empirical observations, are called calibrated or reliable.
+  In this article, we present [CalibrationAnalysis.jl]{.pkg}, a [Julia]{.proglang} package that can be used to analyze if a probabilistic model is calibrated.
+  Main features of [CalibrationAnalysis.jl]{.pkg} are the recently proposed kernel calibration error and a set of hypothesis tests of calibration.
+
+keywords: [calibration, probabilistic, modeling, Julia]
+keywords-formatted: [calibration, probabilistic, modeling, "[Julia]{.proglang}"]
+
+filters:
+  - quarto
+  - codes.lua
+
+bibliography:
+- refs.bib
+- julia.bib
+
+jupyter: jss-calibrationanalysis-1.8
+---
+
+```{julia}
+#| include: false
+# To avoid output from pre-compiling and loading packages in cells below
+using BenchmarkTools
+using Distributions
+using CalibrationAnalysis
+using CairoMakie
+using CategoricalArrays
+using DataFrames
+using DataFramesMeta
+using Distances
+using MLJ
+using PalmerPenguins
+using Plots
+
+using Markdown
+using Random
+using Statistics
+
+# Avoid confirmation dialog and accept license of Palmer penguins data
+ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
+```
+
+## Introduction {#sec-intro}
+
+Predictive models provide mathematical tools for reasoning and decision making.
+However, often it is crucial to know how confident a model is about its predictions to be able to interpret the predictions.
+Probabilistic predictive models report such confidence estimates by predicting probability distributions instead of merely providing point predictions.
+The reported probability distributions convey more information as they also show how likely specific predicted values---such as the point predictions of a non-probabilistic model---are according to the model.
+Probabilistic predictive models are used prominently in meteorology [see, e.g., @Cooke1906A; @Cooke1906B; @Murphy:1977; @DeGroot:1983; @ivarssonProbabilityForecastingSweden1986; @Broecker:2007] but also arise more generally as posterior predictive distributions in Bayesian inference.
+
+Unfortunately, probabilistic models do not necessarily report uncertainties faithfully.
+For instance, modern deep neural network models were found to be over-confident in many cases [@Guo:2017].
+Over-confident predictions underestimate the uncertainty of the probabilistic forecast, which can be misleading and have fatal consequences in particular in safety-critical applications.
+A *calibrated* model avoids these issues and yields predictions that are consistent with empirically observed uncertainties.
+
+As indicated by its name, the [Julia]{.proglang} package [CalibrationAnalysis.jl]{.pkg} provides tools for the analysis of calibration, by theoretical and empirical quantification, statistical hypothesis testing, as well as visual inspection.
+The analysis is based on a *validation dataset* of predictions and corresponding observations.
+The software package helps users to assess if these predictions, and hence the probabilistic model that they were obtained from, are (likely to be) calibrated.
+
+Typically, calibration is inspected with reliability diagrams [@Murphy:1977; @Broecker:2007; @Broecker:2008; @Vaicenavicius:2019].
+They are available in a range of different variants, and functionality for generating such plots exists in multiple packages, such as in the [Python]{.proglang} package [sklearn]{.pkg} [@scikit-learn:2011] or the [R]{.proglang} package [reliabilitydiag]{.pkg} [@Dimitriadis+Gneiting+Jordan:2021].
+[CalibrationAnalysis.jl]{.pkg} supports non-standard modifications of reliability diagrams, such as consistency bars [@Broecker:2007], that simplify their statistical interpretation.
+
+A special feature of [CalibrationAnalysis.jl]{.pkg} are calibration error estimators for general probabilistic models.
+Most existing research and tools focuses on calibration analysis of classification models, with the notable exception of a [Python]{.proglang} package for distribution calibration of regression models [@Song:2019].
+In contrast, [CalibrationAnalysis.jl]{.pkg} supports the estimation of calibration errors for classification and regression models.
+These estimators were published recently [@Widmann:2019; @Widmann:2021], and to the best of our knowledge [CalibrationAnalysis.jl]{.pkg} is the first and only package in which they are implemented.
+Additionally, [CalibrationAnalysis.jl]{.pkg} supports the estimation of the commonly used expected calibration error (ECE) for classification models [@Guo:2017; @Vaicenavicius:2019; @Naeini:2015].
+
+Another highlight of [CalibrationAnalysis.jl]{.pkg} are hypothesis tests of calibration, so-called *calibration tests*.
+More concretely, users can perform statistical tests of the null hypothesis
+
+$$
+H_0 \colon \text{model is calibrated}.
+$$
+
+Most of these tests are based on the recently proposed calibration errors by @Widmann:2021.
+The [Python]{.proglang} package [t-cal]{.pkg} implements another even more recent calibration test based on the ECE [@leeTCalOptimalTest2022].
+We are not aware of any other major software packages that support calibration tests.
+
+Note that [CalibrationAnalysis.jl]{.pkg} is focused on the analysis of calibration.
+This is a main difference from other tools for post-hoc model calibration such as the [Python]{.proglang} package for temperature scaling [@Guo:2017], the [Python]{.proglang} package [dirichletcal]{.pkg} [@Kull:2019], the [Python]{.proglang} package [sklearn]{.pkg} [@scikit-learn:2011], or the [Python]{.proglang} and [R]{.proglang} packages [betacal]{.pkg} for Beta calibration [@Kull:2017].
+
+## Theory and software
+
+In this section, we define the terms *probabilistic predictive model* and *calibration* formally.
+We explain the main design principles of [CalibrationAnalysis.jl]{.pkg} and introduce its three core components:
+Reliability diagrams, calibration errors, and calibration tests.
+First we shortly summarize the theoretical background, and then we demonstrate with a simple artificial example how these components are used in [CalibrationAnalysis.jl]{.pkg}.
+
+### Probabilistic predictive model
+
+We consider the problem of predicting a target $Y$ from a feature $X$.
+Mathematically, both $X$ and $Y$ are random variables.
+In the common case where target $Y$ takes a finite discrete set of values such as $\{1, 2, \ldots, n\}$ we deal with a classification problem.
+
+A probabilistic predictive model $P$ outputs probability distributions of $Y$ instead of point predictions.
+For instance, for a feature $X$ the model *predicts a distribution of $Y$* which we denote with $P_X$ to illustrate its dependency on $X$.
+
+For classification problems, $P_X$ is a categorical distribution of the target values that, usually, depends on the given feature $X$.
+In a regression setting, $P_X$ could be, e.g., a normal distribution of target values.
+
+Generally, such probabilistic forecasts allow to specify fuzzy uncertainties and are therefore used for many prediction problems.
+An ideal model would predict the *conditional distribution $\Prob(Y \,|\, X)$* of $Y$ for feature $X$ but in many cases this is not possible.
+Instead, we hope that the prediction $P_X$ is a sufficiently close approximation of $\Prob(Y \,|\, X)$.
+
+### Calibration
+
+A probabilistic predictive model is called *calibrated* if its predictions are consistent with observed outcomes:
+Hypothetically, if a weather forecaster predicts that it rains the next day with the same probability for an infinite sequence of days, then the predicted probability is calibrated if it is equal to the frequency of rainy days [@DeGroot:1983].
+Mathematically, the probabilistic model $P$ is called calibrated if
+
+$$
+\Prob(Y \,|\, P_X) = P_X \qquad \text{almost surely}.
+$$ {#eq-calibration}
+
+Importantly, calibration is different from model accuracy.
+For instance, the true model $\Prob(Y \,|\, X)$ is calibrated but generally there are multiple, also less accurate, models:
+Any model of the form
+
+$$
+\Prob(Y \,|\, f(X))
+$$
+
+for some measurable function $f$ is calibrated [@Broecker:2009; @Vaicenavicius:2019].
+Hence in particular also the constant model $\Prob(Y)$ of the marginal distribution of the targets is calibrated.
+
+Most commonly, calibration is defined and analyzed for binary classification problems where prediction $P_X$ is a Bernoulli distribution and typically identified with its success probability.
+However, the definition in @eq-calibration has a wider applicability and covers multi-class classification as well as regression problems.
+
+::: {.callout}
+
+We see that @eq-calibration depends on feature $X$ only implicitly via the prediction $P_X$.
+This implies that we can analyze calibration based solely on target $Y$ and prediction $P_X$.
+Of course, in practice typically the distribution of $P_X$ is obtained as the push-forward of the distribution of $X$ using the model $P$.
+However, for the purpose and theoretical discussion of calibration it is irrelevant how the predictions are obtained.
+
+:::
+
+### Software design
+
+The [Julia]{.proglang} package [CalibrationAnalysis.jl]{.pkg} is a software suite for analyzing calibration.
+More concretely, it is a tool for studying if a model is calibrated based on a *validation dataset*
+
+$$
+(P_{X_i}, Y_i)_{i=1}^n
+$$
+
+of $n$ predictions $P_{X_1}, \ldots, P_{X_n}$ and corresponding observations $Y_1, \ldots, Y_n$.
+We assume that $(P_{X_i}, Y_i)_{i=1}^n$ are independent and identically distributed.
+Typically, the validation dataset is generated from a dataset $(X_i, Y_i)_{i=1}^n$ of features and corresponding observations by computing the predictions $P_{X_i}$ using the model $P$ of interest.
+As discussed above, however, for the purpose of our analysis it is irrelevant how the probabilistic predictions $P_{X_i}$ are obtained.
+
+The main features of [CalibrationAnalysis.jl]{.pkg} are estimation of calibration errors and calibration tests for classification and regression models.
+Tasks such as improving calibration, during or after training a model, are not within the scope of the package.
+
+| Name                           | Description                           |
+|:------------------------------ |:------------------------------------- |
+| [CalibrationErrors.jl]{.pkg}   | Estimators of calibration errors      |
+| [CalibrationTests.jl]{.pkg}    | Hypothesis tests of calibration       |
+| [ReliabilityDiagrams.jl]{.pkg} | Visualization of reliability diagrams |
+
+: Overview of the [Julia]{.proglang} packages bundled by [CalibrationAnalysis.jl]{.pkg}. {#tbl-overview}
+
+[CalibrationAnalysis.jl]{.pkg} is a meta-package that bundles a set of [Julia]{.proglang} packages listed in @tbl-overview.
+Additionally, we published the [Python]{.proglang} package [pycalibration]{.pkg} and the [R]{.proglang} package [rcalibration]{.pkg}.
+These packages are interfaces for [CalibrationErrors.jl]{.pkg} and [CalibrationTests.jl]{.pkg} and allow users of [Python]{.proglang} and [R]{.proglang} to access the calibration analysis tools in their respective programming languages.
+
+[CalibrationAnalysis.jl]{.pkg} and its subpackages follow the philosophy of the [Julia]{.proglang} package ecosystem and are designed in a modular way.
+The subpackages can be used separately which helps to reduce dependencies and compilation times if not all features are needed.
+For instance, in [Julia]{.proglang} plotting packages are notorious for increasing compilation and loading times, and hence it can be desirable to not load [ReliabilityDiagrams.jl]{.pkg} if one does not intend to plot reliability diagrams.
+
+Moreover, the calibration packages are tightly integrated with other [Julia]{.proglang} packages.
+Existing functionality in other packages is reused and extended whenever possible.
+For instance, the calibration error estimators use the interface for kernel functions in the package [KernelFunctions.jl]{.pkg}.
+Many common kernels such as Gaussian or Laplace kernels are defined in [KernelFunctions.jl]{.pkg} and hence are available for users automatically, without defining them in [CalibrationAnalysis.jl]{.pkg}.
+Additional kernel functions can be defined in a straightforward way, as explained in the documentation of [KernelFunctions.jl]{.pkg}.
+
+### Example: Synthetic datasets
+
+In the following Sections [-@sec-reliability-diagrams], [-@sec-calibration-errors], and [-@sec-calibration-tests] we discuss the theoretical background of reliability diagrams, calibration errors, and calibration tests, respectively.
+We illustrate the corresponding functionality in [CalibrationAnalysis.jl]{.pkg} using two validation datasets:
+One dataset with calibrated and one with uncalibrated predictions.
+
+We include [Julia]{.proglang} code snippets to clarify the data generation and the calibration analysis.
+The paper is written with Quarto, an "open-source scientific and technical publishing system" [@Quarto:2022] that supports literate programming [@Knuth:1984].
+A single command executes all code blocks in the text document and generates a PDF document with the resulting figures.
+For improved readability, not all executed code is included in the resulting PDF.
+The Quarto source file is included in the supplementary material.
+
+We generate $n = 1000$ synthetic predictions $p_{1}, \ldots, p_{n}$ of a classification model with $d = 3$ classes by drawing them randomly from the probability simplex.
+To mimick a typical scenario after training, a Dirichlet distribution with concentration parameters $\alpha_1 = \alpha_2 = \alpha_3 = 0.2$ is chosen as sampling distribution:
+Its mass is concentrated towards the boundaries, i.e., typical predictions assign high probability to one of the classes and therefore have low entropy.
+
+The following [Julia]{.proglang} code generates a $d \times n$ matrix `ps` where column $i$ corresponds to the probability vector of prediction $p_{i}$:
+
+```{julia}
+#| output: false
+using Distributions
+using Random
+
+Random.seed!(1234) # for reproducibility
+
+d = 3 # number of classes
+n = 1_000 # number of predictions
+ps = rand(Dirichlet(d, 0.2), n)
+```
+
+For each prediction $p_{i}$ we then sample a consistent observation $y_{i}$ from the predicted categorical distribution.
+In the vector `ys` the $i$-th element corresponds to observation $y_{i}$:
+
+```{julia}
+#| output: false
+ys = [rand(Categorical(ps[:, i])) for i in 1:n]
+```
+
+This setup ensures that the resulting validation dataset $(p_{1}, y_{1}), \ldots, (p_{n}, y_{n})$ of predictions and observations corresponds to a calibrated model:
+By construction, we have
+
+$$
+\Prob(Y \,|\, P_{X} = p_{i}) = p_{i}
+$$
+
+for all predictions $p_{i}$.
+
+Additionally, we generate another validation dataset $(q_1, y_{1}), \ldots, (q_{n}, y_{n})$ with the same observations but different predictions that corresponds to an uncalibrated model.
+For each prediction $p_{i}$, we compute an underconfident prediction $q_{i}$ as convex combination of $p_{i}$ and the uniform categorical distribution $u$ with equal probability $1/d$ for each class.
+That is, the underconfident prediction $q_{i}$ is defined as
+
+$$
+q_{i} = \lambda p_{i} + (1 - \lambda) u
+$$
+
+where $\lambda \in (0, 1)$.
+Here we choose $\lambda = 0.9$.
+
+The $i$-th column in the $d \times n$ matrix `qs` corresponds to the prediction $q_{i}$:
+
+```{julia}
+#| output: false
+lambda = 0.9
+qs = lambda .* ps .+ (1 - lambda) / d
+```
+
+The transformation increases the entropy of the predictions without focusing only on the class with highest confidence:
+Since the entropy $\entropy(p)$ is concave in $p$ and maximized for the uniform categorical distribution $u$, it follows from Jensen's inequality that for all $i = 1,\ldots, n$
+
+$$
+\entropy(q_{i}) \geq \lambda \entropy(p_{i}) + (1 - \lambda) \entropy(u) \geq \entropy(p_{i})
+$$
+
+with equality if and only if $p_{i} = u$.
+Moreover, by construction we have
+
+$$
+\Prob(Y \,|\, P_X = q_{i}) = p_{i} = \lambda^{-1} q_{i} + (1 - \lambda^{-1}) u \neq q_{i}
+$$
+
+for all predictions $q_{i} \neq u$.
+
+### Reliability diagrams {#sec-reliability-diagrams}
+
+Typically calibration of binary classification problems is inspected visually with reliability diagrams [see, e.g., @Murphy:1977; @ivarssonProbabilityForecastingSweden1986; @Broecker:2007; @Broecker:2008; @Vaicenavicius:2019].
+In a classic reliability diagram, one target is fixed and its predicted confidence estimates (numbers in the unit interval $[0, 1]$) are divided up into separate bins.
+For every bin, the empirical frequency of the target is plotted versus the average predicted confidence estimate.
+As can be seen from @eq-calibration, if a model is calibrated, then for every prediction the empirical frequency is equal to the prediction.
+Hence deviations from the diagonal of the first orthant in a reliability diagram indicate that a model is not calibrated.
+
+To be able to visualize the multi-class predictions in our synthetic datasets, we have to project them to predictions of a binary classification model.
+Here we consider predictions of the mode with corresponding confidence estimates.
+That is, instead of the three-class classification model $P$ we study the binary classification model $\tilde{P}$ with
+
+  - extended features $\tilde{X} = (X, \operatorname{mode}(P_X))$,
+  - binary targets $\tilde{Y} = [Y = \operatorname{mode}(P_X)]$, and
+  - predictions $\tilde{P}_{\tilde{X}} = \tilde{P}_{(X, \operatorname{mode}(P_X))} = \operatorname{Bernoulli}\big(P_{X}(\{\operatorname{mode}(P_X)\})\big)$.
+
+Thus we only analyze calibration of the probabilities predicted for the most confident class.
+Other less common calibration lenses [@Vaicenavicius:2019] can be used to focus on different aspects of the model.
+
+Note that by construction the modes of $p_i$ and $q_i$ are equal for all $i = 1,\ldots,n$, and hence the resulting binary targets for the calibrated and uncalibrated validation datasets are equal.
+
+```{julia}
+#| output: false
+# Compute modes of predictions (same for `ps` and `qs`).
+predictions_modes = map(argmax, eachcol(ps))
+
+# Compute binary targets.
+ys_binary = ys .== predictions_modes
+
+# Compute binary predictions.
+ps_binary = [ps[m, i] for (m, i) in zip(predictions_modes, 1:n)]
+qs_binary = [qs[m, i] for (m, i) in zip(predictions_modes, 1:n)]
+```
+
+[ReliabilityDiagrams.jl]{.pkg}, and hence also [CalibrationAnalysis.jl]{.pkg}, support the [Plots.jl]{.pkg} and [Makie.jl]{.pkg} plotting ecosystems, the arguably two largest and most popular plotting frameworks in [Julia]{.proglang} with a variety of different backends.
+
+Within the [Makie.jl]{.pkg} framework (here we chose [CairoMakie.jl]{.pkg}, a backend for static high-quality plots), reliability diagrams can be created with `reliability`.
+Similarly, with the [Plots.jl]{.pkg} framework reliability diagrams can be plotted with `reliabilityplot`.
+Both functions, `reliability` and `reliabilityplot`, support the same arguments and options.
+
+```{julia}
+#| label: fig-examples-reldiag
+#| fig-cap: "Reliability diagram of the calibrated dataset without customizations such as labels, using the default settings of [ReliabilityDiagrams.jl]{.pkg} and the plotting packages."
+#| fig-subcap:
+#|   - "[Makie.jl]{.pkg}"
+#|   - "[Plots.jl]{.pkg}"
+#| layout-ncol: 2
+using CalibrationAnalysis
+using CairoMakie
+using Plots
+
+# Plot and show reliability diagram with Makie.jl.
+display(reliability(ps_binary, ys_binary))
+
+# Plot and show reliability diagram with Plots.jl.
+display(reliabilityplot(ps_binary, ys_binary))
+```
+
+The resulting Figures [-@fig-examples-reldiag-1] and [-@fig-examples-reldiag-2] show that the default reliability diagrams generated by [ReliabilityDiagrams.jl]{.pkg} differ from examples found in the literature [see, e.g., the discussion in @Broecker:2007]:
+
+ 1. By default, the average devation of the empirical frequencies from the confidence estimates is plotted instead of the average empirical frequencies as in classic reliability diagrams [@Vaicenavicius:2019].
+    In our opinion, often this makes it easier to compare deviations for different predictions
+    The average empirical frequencies can be plotted with the keyword argument `deviation = false` (default value `true`).
+ 2. By default, consistency bars are added that cover the range of the deviations that are likely to be observed with 95% probability *if* the model were to be calibrated [@Broecker:2007].
+    The bars help to assess visually if a deviation from the ideal is likely to be observed even for calibrated models.
+    They are approximated with consistency resampling, a special resampling strategy proposed by @Broecker:2007.
+    The randomness in the sampling procedure explains why the bars in Figures [-@fig-examples-reldiag-1] and [-@fig-examples-reldiag-2] are different.
+    The number of samples and the coverage of the consistency bars can be configured with the keyword argument `consistencybars` (default value `ConsistencyBars(; samples=1_000, coverage=0.95)`).
+    The bars can be disabled by setting `consistencybars = nothing`.
+ 3. By default, confidence estimates are split into 10 bins of approximately equal mass, i.e., with approximately equal number of samples.
+    The binning scheme and the number of bins can be tuned by specifying the `binning` keyword argument (default value `EqualMass(; n=10)`).
+    For instance, with `binning = EqualSize(; n=10)` samples are binned into 10 bins of uniform size which is a common choice in the literature [@Broecker:2007].
+
+The motivation for consistency bars is that reliability diagrams can be difficult to interpret and sometimes even be misleading due to the randomness of the validation data [see, e.g., the example in @Broecker:2007].
+This problem can also be observed in our example if we compare the default reliability diagrams in [ReliabilityDiagrams.jl]{.pkg} with classic reliability diagrams without consistency bars.
+
+```{julia}
+#| echo: false
+#| label: fig-examples-reldiags
+#| fig-cap: "Reliability diagrams of the calibrated and the uncalibrated datasets. The top row shows classic reliability diagrams without consistency bars, the bottom row shows the reliability diagrams generated by [ReliabilityDiagrams.jl]{.pkg} using the default settings."
+#| fig-format: pdf
+let ps_binary = ps_binary, qs_binary = qs_binary, ys_binary = ys_binary
+    fig = Figure(; resolution=(800, 500))
+
+    ax1 = Axis(fig[1, 1]; xticksvisible=false, xticklabelsvisible=false, title="calibrated")
+    ablines!(ax1, 0, 1; color=:black, linestyle=:dash, label="ideal")
+    reliability!(
+        ax1, ps_binary, ys_binary; deviation=false, consistencybars=nothing, label="data"
+    )
+
+    ax2 = Axis(
+        fig[1, 2];
+        xticksvisible=false,
+        xticklabelsvisible=false,
+        yticksvisible=false,
+        yticklabelsvisible=false,
+        title="uncalibrated",
+    )
+    ablines!(ax2, 0, 1; color=:black, linestyle=:dash, label="ideal")
+    reliability!(
+        ax2, qs_binary, ys_binary; deviation=false, consistencybars=nothing, label="data"
+    )
+
+    ax3 = Axis(fig[2, 1];)
+    hlines!(ax3, 0; color=:black, linestyle=:dash, label="ideal")
+    reliability!(ax3, ps_binary, ys_binary; label="data")
+
+    ax4 = Axis(fig[2, 2]; yticksvisible=false, yticklabelsvisible=false)
+    hlines!(ax4, 0; color=:black, linestyle=:dash, label="ideal")
+    reliability!(ax4, qs_binary, ys_binary; label="data")
+
+    # Ensure that x- and y-axes are the same.
+    linkxaxes!(ax1, ax2, ax3, ax4)
+    linkyaxes!(ax1, ax2)
+    linkyaxes!(ax3, ax4)
+
+    # Add common label for x axes.
+    Label(fig[3, :], "confidence"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 2, 0)
+
+    Label(
+        fig[1, 0],
+        "empirical frequencies";
+        valign=:center,
+        rotation=pi / 2,
+        padding=(0, 5, 0, 0),
+        tellheight=false,
+    )
+    Label(
+        fig[2, 0],
+        "deviation";
+        valign=:center,
+        rotation=pi / 2,
+        padding=(0, 5, 0, 0),
+        tellheight=false,
+    )
+    colgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    Legend(fig[1:2, 3], ax1; framevisible=false)
+
+    fig
+end
+```
+
+The reliability diagrams of the calibrated and uncalibrated model in [@fig-examples-reldiags] both show deviations from the ideal expected from a calibrated model.
+In classic reliability diagrams without consistency bars (top row in [@fig-examples-reldiags]) there is no clear way to determine if the deviations are consistent with a calibrated model or not.
+That is, it is unclear if the deviations could be attributed to the randomness in the data generating process or if they indicate that the model is uncalibrated.
+The reliability diagrams with consistency bars (bottom row in [@fig-examples-reldiags]), however, show that for confidence estimates $> 0.9$ the deviations of the uncalibrated dataset are inconsistent with a calibrated model whereas the other dataset is not.
+
+@Vaicenavicius:2019 proposed to extend reliability diagrams to multi-class classification problems but unfortunately the interpretation of higher-dimensional plots becomes even more challenging.
+Currently, [ReliabilityDiagrams.jl]{.pkg} does not support such higher-dimensional plots.
+
+### Calibration errors {#sec-calibration-errors}
+
+The degree of miscalibration of a model can be quantified by calibration errors.
+
+#### Kernel calibration error
+
+The *kernel calibration error* (KCE) forms a class of calibration errors that is closely related to the maximum mean discrepancy.
+It is an example of a larger group of calibration errors that are formulated as integral probability metrics.
+The KCE can be defined [@Widmann:2021] as
+
+$$
+\KCE_k \coloneqq  \sup_{f \in \mathcal{B}_k} \bigg| \E f(P_X, Y) - \E f(P_X, Z_X)\bigg|,
+$$ {#eq-kce}
+
+where $\mathcal{B}_{k}$ is the unit ball in the reproducing kernel Hilbert space to a positive definite kernel $k(\cdot, \cdot)$ and $Z_X$ is an artificial random variable on the target space with conditional law $\Prob(Z_X \,|\, P_X) = P_X$.
+
+If a model is calibrated, then by construction the distributions of $(P_{X}, Y)$ and $(P_{X}, Z_{X})$ are equal and therefore the KCE is zero.
+However, if a model is uncalibrated, then the two distributions are different.
+In this case a sufficiently rich function space $\mathcal{B}_{k}$ allows us to find a witness function $f \in \mathcal{B}_{k}$ that tells apart the two distributions and leads to a positive KCE that quantifies the degree to which they differ.
+
+The kernel $k$ is an important design choice.
+It has to be defined on the product space of the space of predictions and targets.
+Hence a natural choice are tensor product kernels of the form
+
+$$
+k\big((p, y), (p', y')\big) := k_{P}(p, p') k_{Y}(y, y'),
+$$
+
+where $k_{P}$ and $k_{Y}$ are kernels on the prediction and target space, respectively.
+If $k_{P}$ and $k_{Y}$ are universal kernels, then $\KCE_k = 0$ *if and only if* the model is calibrated [@Widmann:2021].
+
+By choosing an appropriate kernel the KCE can be applied not only to binary and multi-class classification models but also to general probabilistic predictive models such as for regression.
+In many practical scenarios, kernels on the space of predictions can be constructed by defining kernels on a real-valued parameterization of the predictions, e.g., based on mean and variance if normal distributions are predicted.
+
+The maximization problem in @eq-kce admits a closed-form solution.
+Importantly, the squared KCE can be estimated without estimating the conditional distribution $\Prob(Y \,|\, P_X)$ explicitly.
+A large class of consistent estimators of the squared KCE are of the form
+
+$$
+{\bigg\lfloor \frac{n}{m} \bigg\rfloor}^{-1} \sum_{b=1}^{\lfloor n/m \rfloor} |B_{b}|^{-1} \sum_{(i, j) \in B_{b}} h_k(i, j),
+$$ {#eq-skce-estimators}
+
+where
+
+$$
+\begin{aligned}
+h_k(i, j) ={}& k\big((P_{X_{i}}, Y_{i}), (P_{X_{j}}, Y_{j})\big) - \E k\big((P_{X_{i}}, Z_{X_{i}}), (P_{X_{j}}, Y_{j})\big) \\
+& - \E k\big((P_{X_{i}}, Y_{i}), (P_{X_{j}}, Z_{X_{j}})\big) + \E k\big((P_{X_{i}}, Z_{X_{i}}), (P_{X_{j}}, Z_{X_{j}})\big)
+\end{aligned}
+$$
+
+and blocks $B_b$ ($b = 1, \ldots, \lfloor n/m \rfloor$) are defined as
+
+$$
+B_b = \begin{cases}
+\{(i, j): (b - 1) m < i < j \leq bm \} & \text{(unbiased)}, \\
+\{(i, j): (b - 1) m < i, j \leq bm \} & \text{(biased)}.
+\end{cases}
+$$
+
+That is, the estimate is the mean of the average of $h_{k}$ in each block, with unbiased estimators not including terms of the form $h_{k}(i, i)$.
+Noteably, the biased estimates are always non-negative.
+Since the biased estimators have a positive bias, they are guaranteed to overestimate the squared KCE on average.
+@fig-kce-blocks illustrates the estimators of the squared KCE of the form in @eq-skce-estimators.
+
+![Illustration of the terms in the unbiased (left) and biased (right) estimators of squared KCE of the form in @eq-skce-estimators, highlighted in gray.](diagram.tex){#fig-kce-blocks}
+
+The number $m$ of validation data points per block can be fixed or, e.g., be a function of the number of samples $m = m(n)$.
+The computational complexity of the estimator is $\mathcal{O}(\lfloor n / m \rfloor m^{2})$.
+Thus if the block size is fixed (e.g., $m = 2$), the computational complexity is $\mathcal{O}(n)$.
+On the other hand, if there is only a single block with all samples ($m = n$), it is $\mathcal{O}(n^2)$ and hence quadratic in the number of samples.
+Generally, larger values of $m$ increase the computational complexity of the estimator but at the same time reduce its variance.
+A possible trade-off is the choice $m(n) = [\sqrt{n}]$ where $[\cdot]$ denotes the closest integer [@Zaremba:2013].
+
+Let us return to our example.
+For simplicity, we choose a tensor product kernel $k$ with a white kernel $k_Y(y, y') = \delta_{y,y'}$ on the space of targets and a Gaussian kernel $k_P$ with length scale $0.1$ on the space of predicted categorical distributions.
+Both $k_Y$ and $k_P$ are universal kernels and hence $\KCE_k = 0$ if and only if the investigated model is calibrated.
+With [CalibrationErrors.jl]{.pkg}, or rather the re-exported [KernelFunctions.jl]{.pkg} package, such a tensor product kernel can be constructed in the following way:
+
+```{julia}
+#| output: false
+kernel = tensor(with_lengthscale(GaussianKernel(), 0.1), WhiteKernel())
+```
+
+Alternatively, tensor product kernels can be constructed with the infix operator $\otimes$.
+The documentation of [KernelFunctions.jl]{.pkg} contains more information about how to define (compositions of) kernels.
+[CalibrationErrors.jl]{.pkg}, and hence [CalibrationAnalysis.jl]{.pkg}, support all kernels that follow the interface of [KernelFunctions.jl]{.pkg}.
+
+We create the unbiased minimum variance estimator of the squared KCE with this `kernel`:
+
+```{julia}
+#| output: false
+skce = SKCE(kernel)
+```
+
+This estimator `skce` can then be used to estimate the squared KCE from a validation dataset.
+Since `ps` is a matrix of predictions, we have to wrap it with `ColVecs` to specify that each column corresponds to one prediction.
+Similarly, a matrix of predictions can be wrapped with `RowVecs` to indicate that each row represents one prediction.
+`ColVecs` and `RowVecs` are defined in [KernelFunctions.jl]{.pkg} and used in other packages beside [CalibrationAnalysis.jl]{.pkg} as well.
+
+:::{.codechunk}
+
+```{julia}
+skce(ColVecs(ps), ys)
+```
+
+:::
+
+Note that in contrast to the visual inspection with reliability diagrams we do not have to project categorical predictions for multi-class classification but can analyze them directly.
+If desired, of course, we could focus on specific aspects of calibration and estimate the squared KCE of, e.g., projected binary predictions.
+
+:::{.codechunk}
+
+```{julia}
+skce(ps_binary, ys_binary)
+```
+
+:::
+
+Sometimes it might also be interesting to only study a subset of predictions and, e.g., discard predictions with too high entropy.
+The following example would analyze predictions whose entropy is less than or equal to the entropy of $\operatorname{Categorical}([0.9, 0.1, 0, \ldots, 0])$.
+This implies that the maximum class probability of each prediction is at least 0.9 (but not every prediction with maximum class probability of 0.9 is included!).
+
+:::{.codechunk}
+
+```{julia}
+lowentropy_idxs = let maxentropy = entropy(Categorical([0.9, 0.1]))
+    [entropy(Categorical(ps[:, i])) < maxentropy for i in 1:n]
+end
+skce(ColVecs(ps[:, lowentropy_idxs]), ys[lowentropy_idxs])
+```
+
+:::
+
+If no keyword arguments are specified, `SKCE` constructs the unbiased estimator of the squared KCE with a single block ($m = m(n) = n$).
+By setting `unbiased = false` (default value is `true`) one can create the biased estimator of the squared KCE:
+
+:::{.codechunk}
+
+```{julia}
+biasedskce = SKCE(kernel; unbiased=false)
+biasedskce(ColVecs(ps), ys)
+```
+
+:::
+
+Alternatively, one can define estimators with multiple blocks of fixed or data-dependent number of samples by providing the `blocksize` keyword argument (default value is the identity function `identity`, i.e., a single block with all samples is used):
+
+:::{.codechunk}
+
+```{julia}
+skce_pairs = SKCE(kernel; blocksize=2)
+skce_pairs(ColVecs(ps), ys)
+```
+
+```{julia}
+skce_sqrt = SKCE(kernel; blocksize=n -> round(Int, sqrt(n)))
+skce_sqrt(ColVecs(ps), ys)
+```
+
+:::
+
+These examples illustrate that, unsurprisingly, the estimates depend on the chosen estimator.
+
+In @fig-skce-estimates we compare estimates of the squared KCE for the synthetic models obtained with [CalibrationErrors.jl]{.pkg}.
+Again we choose a tensor product kernel with a white kernel $k_{Y}(y, y') = \delta_{y,y'}$ on the space of targets.
+For kernel $k_P$ on the space of predictions we compare Gaussian, Laplacian, rational, and rational quadratic kernels of different length scales.
+
+```{julia}
+#| include: false
+using CategoricalArrays
+using DataFrames
+
+skce_data = let
+    estimates = Float64[]
+    sizehint!(estimates, 40)
+    for predictions in (ps, qs),
+        k in (
+            GaussianKernel(),
+            LaplacianKernel(),
+            RationalKernel(),
+            RationalQuadraticKernel(),
+        ),
+        lengthscale in exp10.(-3:1)
+
+        push!(
+            estimates,
+            SKCE(with_lengthscale(k, lengthscale) ⊗ WhiteKernel())(
+                ColVecs(predictions), ys
+            ),
+        )
+    end
+    DataFrame(;
+        calibrated=vcat(fill(true, 20), fill(false, 20)),
+        lengthscale=categorical(repeat(exp10.(-3:1), 8)),
+        kernel=categorical(
+            repeat(
+                ["Gaussian", "Laplacian", "rational", "rational quadratic"];
+                inner=5,
+                outer=2,
+            ),
+        ),
+        skce=estimates,
+    )
+end
+```
+
+```{julia}
+#| echo: false
+#| label: fig-skce-estimates
+#| fig-cap: "Estimates of the squared KCE for different types of the kernel $k_{P}$ on the space of predictions and varying length scales."
+#| fig-format: pdf
+let data = skce_data
+    fig = Figure(; resolution=(800, 300))
+
+    lengthscales = levels(data.lengthscale)
+    xticks = (1:length(lengthscales), string.(lengthscales))
+    axcal = Axis(fig[1, 1]; title="calibrated", ylabel="squared KCE estimate", xticks)
+    axuncal = Axis(
+        fig[1, 2];
+        title="uncalibrated",
+        yticksvisible=false,
+        yticklabelsvisible=false,
+        xticks,
+    )
+    linkaxes!(axcal, axuncal)
+
+    colors = CairoMakie.Makie.wong_colors(1)
+    for (key, df) in pairs(groupby(data, :calibrated))
+        ax = key.calibrated ? axcal : axuncal
+        kernel = levelcode.(df.kernel)
+        barplot!(
+            ax, levelcode.(df.lengthscale), df.skce; dodge=kernel, color=colors[kernel]
+        )
+    end
+
+    # Add common label for x axes.
+    Label(fig[2, :], "length scale"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    labels = levels(data.kernel)
+    elements = [PolyElement(; polycolor=colors[i]) for i in 1:length(labels)]
+    Legend(fig[1, 3], elements, labels, "kernel"; framevisible=false)
+
+    fig
+end
+```
+
+As @fig-skce-estimates shows, the estimates also depend on the chosen type of kernels and in our example even more importantly on the chosen length scale.
+Regardless of the choice of kernel, for length scales of 0.1 and 1 the estimates of the uncalibrated model are more than one order of magnitude larger than the ones for the calibrated model.
+However, if the length scale is small (0.001) or large (10.0), there is no clear difference between the estimates of the two models.
+
+For all considered choices of $k_P$, in these extreme cases $k_P(p, p')$ converges to $\delta_{p, p'}$ (small length scale) and 1 (large length scale).
+Typically predictions in the validation dataset are pairwise different, and hence the unbiased estimators of the squared KCE will converge to 0 if the length scale of $k_P$ converges to 0, regardless of whether the model is calibrated or not.
+
+```{julia}
+#| include: false
+using Distances
+using Statistics
+
+function median_heuristic(predictions::AbstractMatrix)
+    n = size(predictions, 2)
+    distances = vec(pairwise(Euclidean(), predictions; dims=2))
+    deleteat!(distances, 1:(n + 1):(n^2))
+    return round(Float64(median!(distances)); sigdigits=2)
+end
+```
+
+```{julia}
+#| echo: false
+#| output: asis
+using Markdown
+
+Markdown.parse(
+    """
+    Even when no hyperparameter optimization is performed, the inspection of calibration errors for different length scales can be valuable and help to avoid inadequately small or large length scales.
+    In practice, often the length scale is set based on the median heuristic, even though its origin is unclear.
+    The helper function `median_heuristic_transform` simplifies the use of the heuristic and sets the length scale automatically.
+    In our example the median heuristic would yield length scales for \$k_P\$ of around $(median_heuristic(ps)) (calibrated model) and $(median_heuristic(qs)) (uncalibrated model).
+    For these length scales, @fig-skce-estimates would suggest that indeed the uncalibrated model is "less calibrated" than the calibrated model.
+    """;
+    flavor=:common,
+)
+```
+
+#### Expected calibration error
+
+The *expected calibration error* (ECE) [@Naeini:2015; @Vaicenavicius:2019; @Widmann:2019; @Widmann:2021] is another calibration error.
+It is arguably the most common calibration error and can be defined in its most general form [@Widmann:2021] as
+
+$$
+\ECE_d \coloneqq \E d(\Prob(Y \,|\, P_X), P_X)
+$$ {#eq-ece}
+
+where the real-valued function $d(\cdot, \cdot)$ measures the discrepancy between the predicted distribution $P_X$ and the conditional distribution $\Prob(Y \,|\, P_X)$ of target $Y$ given $P_X$.
+
+By comparing @eq-ece with the definition of calibration in @eq-calibration, we see that the ECE quantifies the expected deviation from the equality condition of a calibrated model in @eq-calibration, as measured by $d$.
+For classification models, the predictions $P_X$ can be identified with vectors in the probability simplex and hence in this case common choices for $d$ are the Euclidean, squared Euclidean, or total variation distance on vectors.
+Similar to the kernel in the KCE, distance $d$ is a design choice of the ECE.
+
+The ECE is arguably more intuitive than the KCE, which probably contributes to its popularity.
+Unfortunately, the estimation of the ECE from a finite data set of predictions and observed outcomes is challenging as, in contrast to the estimators of the squared KCE, typically it requires to estimate the conditional distribution $\Prob(Y \,|\, P_X)$---even more so if $Y$ is a non-binary, real-valued, or possibly even higher-dimensional random variable.
+Common estimators of the ECE use histogram regression estimates of $\Prob(Y \,|\, P_X)$ and are biased and inconsistent [@Vaicenavicius:2019].
+In contrast to the biased estimators of the squared KCE, estimators of the ECE can be found to be both positively and negatively biased [@Widmann:2019].
+
+Currently [CalibrationErrors.jl]{.pkg} supports the estimation of the ECE for binary and multi-class classification models with two binning schemes:
+One scheme creates bins of uniform size and the other splits the predictions iteratively along the median of the direction with the highest variance.
+The distance measure $d$ has to be provided as a [Julia]{.proglang} function of the form `d(pbar::AbstractVector\{<:Real\}, ybar::AbstractVector\{<:Real\})` where `pbar` and `ybar` are the average prediction and average empirical frequencies in a bin, respectively.
+In particular, distance measures from [Distances.jl]{.pkg} such as `Euclidean`, `SqEuclidean`, or `TotalVariation` (the default choice) are supported.
+
+An ECE estimator with bins of uniform size (5 per dimension) and the Euclidean distance as distance measure can be defined in the following way:
+
+```{julia}
+#| output: false
+ece = ECE(UniformBinning(5), Euclidean())
+```
+
+With this estimator `ece` we can then estimate the ECE from the validation dataset of the calibrated model:
+
+:::{.codechunk}
+
+```{julia}
+ece(ColVecs(ps), ys)
+```
+
+:::
+
+@fig-ece-estimates shows estimates of the ECE with respect to the Euclidean, squared Euclidean, and total variation distance and different numbers of bins that were obtained from the synthetic datasets with [CalibrationErrors.jl]{.pkg}.
+
+```{julia}
+#| include: false 
+ece_data = let
+    # Compute ECE estimates for different outcomes, distances, and number of bins
+    estimates = Float64[]
+    sizehint!(estimates, 24)
+    for predictions in (ps, qs),
+        d in (TotalVariation(), Euclidean(), SqEuclidean()),
+        nbins in 1:1:5
+
+        push!(estimates, ECE(UniformBinning(nbins), d)(ColVecs(predictions), ys))
+    end
+
+    # Collect results in a data frame
+    DataFrame(;
+        calibrated=vcat(fill(true, 15), fill(false, 15)),
+        nbins=repeat(1:1:5, 6),
+        distance=categorical(
+            repeat(["total variation", "Euclidean", "squared Euclidean"]; inner=5, outer=2),
+        ),
+        ece=estimates,
+    )
+end
+```
+
+```{julia}
+#| echo: false
+#| label: fig-ece-estimates
+#| fig-cap: "Estimates of the ECE with respect to different distance measures and numbers of bins."
+#| fig-format: pdf
+let ece_data = ece_data
+    fig = Figure(; resolution=(800, 300))
+
+    nbins = levels(ece_data.nbins)
+    axcal = Axis(fig[1, 1]; title="calibrated", ylabel="ECE estimate", xticks=nbins)
+    axuncal = Axis(
+        fig[1, 2];
+        title="uncalibrated",
+        yticksvisible=false,
+        yticklabelsvisible=false,
+        xticks=nbins,
+    )
+    linkaxes!(axcal, axuncal)
+
+    colors = CairoMakie.Makie.wong_colors(1)
+    for (key, df) in pairs(groupby(ece_data, :calibrated))
+        ax = key.calibrated ? axcal : axuncal
+        distances = levelcode.(df.distance)
+        barplot!(ax, df.nbins, df.ece; dodge=distances, color=colors[distances])
+    end
+
+    # Add common label for x axes.
+    Label(fig[2, :], "number of bins (per class)"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    labels = levels(ece_data.distance)
+    elements = [PolyElement(; polycolor=colors[i]) for i in 1:length(labels)]
+    Legend(fig[1, 3], elements, labels, "distance"; framevisible=false)
+
+    fig
+end
+```
+
+Unsurprisingly, @fig-ece-estimates shows that the estimates depend on the number of bins and the chosen distance measure.
+Generally, the estimates of the uncalibrated model seem to be greater than the ones for the calibrated model which suggests that indeed the uncalibrated model is "less calibrated" than the calibrated one.
+However, for the squared Euclidean distance the difference is visually less apparent.
+As in @fig-ece-estimates, usually even for calibrated models the estimates are positve, which makes it more challenging to assess whether a model is calibrated or not based on the ECE estimates.
+
+### Calibration tests {#sec-calibration-tests}
+
+A limitation of calibration errors is that their scale is not necessarily meaningful:
+A calibration error of zero corresponds to a calibrated model but non-zero values are not readily interpretable---it is unclear if they indicate a slightly or largely miscalibrated model.
+Moreover, as observed also in Figures [-@fig-skce-estimates] and [-@fig-ece-estimates], usually estimates of calibration errors are non-zero even if the model is calibrated.
+Additionally, one has to be careful when comparing calibration error estimates of two different models:
+Are the differences and trends real or caused by randomness in the validation data set?
+
+To address these issues statistical hypothesis tests of the null hypothesis
+
+$$
+H_{0} \colon \text{model is calibrated},
+$$
+
+so-called calibration tests, have been proposed [@Broecker:2007; @Vaicenavicius:2019; @Widmann:2019; @Widmann:2021; @leeTCalOptimalTest2022].
+
+For arbitrary calibration errors one can perform statistical tests based on consistency resampling [@Broecker:2007].
+This test procedure is closely related to the consistency bars discussed above:
+If one checks if the average empirical frequency in a bin is covered by the consistency bar, one performs a calibration test based on consistency resampling in this bin.
+
+Alternatively, one can derive probabilistic bounds and asymptotic distributions for different estimators of the (squared) KCE.
+Probabilistic bounds of the biased and unbiased estimators in @eq-skce-estimators can be obtained with McDiarmid's and Hoeffding's inequality, respectively.
+For instance, by the central limit theorem, for a fixed number of validation data points per block the unbiased estimators of the squared KCE are asymptotically normally distributed as the number of blocks goes to infinity.
+Additional details are omitted here and can be found in the publications by @Widmann:2019; @Widmann:2021.
+
+Based on these probabilistic bounds and asymptotic distributions one can define different test statistics $T$. For a given significance level $\alpha \in (0, 1]$, one can obtain a critical region $C_\alpha$, usually of the form $(c_\alpha, \infty)$, that guarantees that the probability of incorrectly rejecting the null hypothesis (type I error) is upper bounded by $\alpha$ (asymptotically):
+
+$$
+\Prob{(T \in C_\alpha \,|\, H_0)} \leq \alpha
+$$
+
+Due to their higher power, i.e., higher probability of correctly rejecting the null hypothesis, asymptotic tests based on the KCE should be preferred over tests based on probabilistic bounds of the KCE [@Widmann:2021].
+Among the asymptotic tests, the test based on the unbiased estimator with a single block ($m = m(n) = n$) is the most powerful but also computationally most expensive one, as the $p$ value has to be estimated with a bootstrap procedure [@Widmann:2021].
+
+[CalibrationTests.jl]{.pkg} follows the interface of [HypothesisTests.jl]{.pkg}, a [Julia]{.proglang} package for hypothesis testing.
+The asymptotic test for the calibrated model with the `kernel` defined above (Gaussian kernel $k_{P}$ with length scale 0.1 and white kernel $k_{Y}$) can be constructed in the following way:
+
+:::{.codechunk}
+
+```{julia}
+test = AsymptoticSKCETest(kernel, ColVecs(ps), ys)
+```
+
+:::
+
+Relevant information such as the $p$ value estimate is displayed in the terminal.
+Alternatively, we can extract it from the test:
+
+:::{.codechunk}
+
+```{julia}
+pvalue(test)
+```
+
+:::
+
+Since the $p$ value of this hypothesis test is estimated with a bootstrap procedure, we receive slightly different values when recomputing the estimate.
+Some tests also support additional options.
+For instance, here we can set the number of bootstrap iterations used for estimating the $p$ value of `test` (default value is 1000):
+
+:::{.codechunk}
+
+```{julia}
+pvalue(test; bootstrap_iters=10_000)
+```
+
+:::
+
+Generally, [CalibrationTests.jl]{.pkg}, and hence [CalibrationAnalysis.jl]{.pkg}, support all tests and $p$ value estimations discussed above.
+For the number of samples ($n = 1000$) and the kernel chosen here, the more powerful yet computationally more expensive asymptotic test can be performed in around 1 second on a dual-core computer (see computational details below):
+
+:::{.codechunk}
+
+```{julia}
+using BenchmarkTools
+
+@btime pvalue(AsymptoticSKCETest($kernel, ColVecs($ps), $ys))
+```
+
+:::
+
+@fig-pvalue-estimates shows $p$ value estimates of the two synthetic models obtained with [CalibrationTests.jl]{.pkg}.
+The considered calibration tests are based on the asymptotic distribution of the estimators of the squared KCE with a single block, as shown in @fig-skce-estimates.
+
+```{julia}
+#| include: false
+# Compute p value estimates for different kernels and length scales
+pvalue_data = let
+    estimates = Float64[]
+    sizehint!(estimates, 56)
+    for predictions in (ps, qs),
+        k in (
+            GaussianKernel(),
+            LaplacianKernel(),
+            RationalKernel(),
+            RationalQuadraticKernel(),
+        ),
+        lengthscale in exp10.(-3:1)
+
+        push!(
+            estimates,
+            pvalue(
+                AsymptoticSKCETest(
+                    with_lengthscale(k, lengthscale) ⊗ WhiteKernel(),
+                    ColVecs(predictions),
+                    ys,
+                ),
+            ),
+        )
+    end
+    DataFrame(;
+        calibrated=vcat(fill(true, 20), fill(false, 20)),
+        lengthscale=categorical(repeat(exp10.(-3:1), 8)),
+        kernel=categorical(
+            repeat(
+                ["Gaussian", "Laplacian", "rational", "rational quadratic"];
+                inner=5,
+                outer=2,
+            ),
+        ),
+        pvalue=estimates,
+    )
+end
+```
+
+```{julia}
+#| echo: false
+#| label: fig-pvalue-estimates
+#| fig-cap: "$p$ value estimates based on the asymptotic distribution of the estimators with a single block, as shown in @fig-skce-estimates."
+#| fig-format: pdf
+let data = pvalue_data
+    fig = Figure(; resolution=(800, 300))
+
+    lengthscales = levels(data.lengthscale)
+    xticks = (1:length(lengthscales), string.(lengthscales))
+    axcal = Axis(fig[1, 1]; title="calibrated", ylabel="p value estimate", xticks)
+    axuncal = Axis(
+        fig[1, 2];
+        title="uncalibrated",
+        yticksvisible=false,
+        yticklabelsvisible=false,
+        xticks,
+    )
+    linkaxes!(axcal, axuncal)
+
+    colors = CairoMakie.Makie.wong_colors(1)
+    for (key, df) in pairs(groupby(data, :calibrated))
+        ax = key.calibrated ? axcal : axuncal
+        kernel = levelcode.(df.kernel)
+        barplot!(
+            ax, levelcode.(df.lengthscale), df.pvalue; dodge=kernel, color=colors[kernel]
+        )
+    end
+
+    # Add common label for x axes.
+    Label(fig[2, :], "length scale"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    labels = levels(data.kernel)
+    elements = [PolyElement(; polycolor=colors[i]) for i in 1:length(labels)]
+    Legend(fig[1, 3], elements, labels, "kernel"; framevisible=false)
+
+    fig
+end
+```
+
+Similar to the estimates of the squared KCE shown in @fig-skce-estimates, we observe that also the $p$ value estimates depend on the kernel type and, even more importantly it seems, on the length scale.
+For the calibrated model, the $p$ value estimates are large ($> 0.35$) for all considered length scales and kernel types.
+Hence regardless of these hyperparameter choices the null hypothesis $H_{0}$ is not rejected for common significance levels such as $0.01$, $0.05$, or $0.1$.
+On the other hand, for the uncalibrated model the length scale is crucial for the interpretation of the calibration tests:
+For length scales of $0.01$ and $0.1$, all $p$ value estimates are $< 0.015$ (and even $< 0.005$ in all but one case) and hence the null hypothesis $H_{0}$ would be rejected for significance levels such as $0.05$ or $0.1$ (and $0.01$ in all but one case).
+However, for smaller and larger length scales, typically the $p$ value estimates are so large that $H_{0}$ cannot be rejected at these significance levels.
+
+These observation are consistent with the general trend of the estimates of the squared KCE shown in @fig-skce-estimates.
+However, in contrast to these estimates the calibration tests have a clear interpretation.
+It is also interesting that the $p$ value estimates of the uncalibrated model for a length scale of 0.01 are consistently smaller than the ones for a length scale of 10 *even though* the raw estimates of the squared KCE seem to suggest the exact opposite interpretation.
+The calibration error estimates are a bit misleading in this case since their scale depends on the length scale.
+
+Similar to kernel two-sample tests, calibration tests also motivate additional heuristics for choosing the length scale such as selecting the length scale by maximizing the asymptotic power of the calibration test on a held-out dataset [@Gretton:2012].
+Such heuristics are planned to be added to [CalibrationTests.jl]{.pkg} in a future release.
+
+## Case study: Classification models of penguin species
+
+In the previous sections we have described the main functionality of [CalibrationAnalysis.jl]{.pkg} and illustrated it using a synthetic dataset.
+In this section we demonstrate how [CalibrationAnalysis.jl]{.pkg} can be applied to a real-world problem.
+
+We study the calibration of three multi-class classification models that predict categorical distributions of penguins species (`Adelie`, `Chinstrap`, and `Gentoo`) from measurements of flipper length and body mass.
+The measurements for training and evaluating the models are taken from the Palmer penguin dataset [@PalmerPenguins.jl-2014]:
+
+```{julia}
+#| output: false
+using DataFrames
+using MLJ
+using PalmerPenguins
+
+# Load dataset without missing measurements and extract features and targets.
+penguins = dropmissing(DataFrame(PalmerPenguins.load()))
+y, X = unpack(
+    penguins,
+    ==(:species),
+    x -> x === :flipper_length_mm || x === :body_mass_g;
+    :species => Multiclass,
+    :flipper_length_mm => MLJ.Continuous,
+    :body_mass_g => MLJ.Continuous,
+)
+```
+
+We split the dataset randomly into a training and validation dataset using stratified sampling.
+The training dataset contains 70% of the datapoints, and the remaining 30% are used for validation.
+
+```{julia}
+#| output: false
+Random.seed!(1234) # for reproducibility
+
+# Split dataset into training and validation data.
+trainidxs, validxs = partition(1:nrow(X), 0.7; stratify=y, shuffle=true)
+```
+
+@fig-penguins shows the distribution of the flipper length and bill length in the training and validation dataset.
+
+```{julia}
+#| echo: false
+#| label: fig-penguins
+#| fig-cap: "Measurements of bill and flipper length in the Palmer penguin dataset."
+#| fig-format: pdf
+let penguins = penguins, trainidxs = trainidxs, validxs = validxs
+    # Create figure with two axes in one row.
+    fig = Figure(; resolution=(800, 300))
+    axtrain = Axis(fig[1, 1]; title="training", ylabel="body mass (g)")
+    axval = Axis(
+        fig[1, 2]; title="validation", yticksvisible=false, yticklabelsvisible=false
+    )
+
+    # Ensure that x- and y-axes of the both plots are the same.
+    linkaxes!(axtrain, axval)
+
+    # Plot the training and validation data.
+    for (idxs, ax) in zip((trainidxs, validxs), (axtrain, axval))
+        for (key, data) in pairs(groupby(penguins[idxs, :], :species))
+            CairoMakie.scatter!(
+                ax,
+                data.flipper_length_mm,
+                data.body_mass_g;
+                markersize=6,
+                label=string(key.species),
+            )
+        end
+    end
+
+    # Add common label for x axes.
+    Label(fig[2, :], "flipper length (mm)"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    Legend(fig[1, 3], axtrain, "species"; framevisible=false)
+
+    fig
+end
+```
+
+On the training data we learn three different classification models:
+A logistic regression model (`LogReg`), a Gaussian naive Bayes classifier (`NaiveBayes`), and a classification tree model based on boosting (`XGBoost`).
+We want to emphasize that we do not intend to make any general comments about the calibration of these model classes.
+Thus to simplify the presentation, we do not perform any model tuning but only use the default hyperparameters in the [MLJ.jl]{.pkg} machine learning framework.
+
+```{julia}
+#| output: false
+# Train a logistic regression model
+LR = @load MultinomialClassifier pkg = MLJLinearModels
+logreg = fit!(machine(LR(), X, y); rows=trainidxs)
+
+# Train a naive Bayes classifier
+NB = @load GaussianNBClassifier pkg = NaiveBayes
+naivebayes = fit!(machine(NB(), X, y); rows=trainidxs)
+
+# Train a classification tree model
+XGBoost = @load XGBoostClassifier pkg = XGBoost
+xgboost = fit!(machine(XGBoost(), X, y); rows=trainidxs)
+```
+
+In this example our goal is to show how one can analyze and compare the calibration of the three models.
+However, it is still interesting to inspect how accurate the different models are as typically accuracy is another important aspect that is orthogonal to calibration.
+In @fig-error-rate the error rate of the models is shown.
+The error rate is defined as the percentage of incorrectly predicted modes as all models predict categorical distributions over penguin species instead of mere point predictions.
+
+```{julia}
+#| include: false
+train = let
+    x = falses(nrow(penguins))
+    x[trainidxs] .= true
+    x
+end
+
+predicted_species = DataFrame(
+    :id => 1:nrow(penguins),
+    :train => train,
+    :species => penguins.species,
+    :LogReg => MLJ.predict_mode(logreg, X),
+    :NaiveBayes => MLJ.predict_mode(naivebayes, X),
+    :XGBoost => MLJ.predict_mode(xgboost, X),
+)
+```
+
+```{julia}
+#| echo: false
+#| label: fig-error-rate
+#| fig-cap: "Error rate of the three classification models."
+#| fig-format: pdf
+using CategoricalArrays
+using DataFramesMeta
+
+let predicted_species = predicted_species
+    data = stack(
+        predicted_species,
+        Not([:id, :train, :species]);
+        variable_name=:model,
+        value_name=:prediction,
+    )
+    error_rates = @chain data begin
+        groupby([:train, :model, :species])
+        @combine :error_rate = mean(!=(first(:species)), :prediction)
+        @transform begin
+            :model = categorical(:model)
+            :species = categorical(:species)
+        end
+    end
+
+    fig = Figure(; resolution=(800, 300))
+    species = levels(error_rates.species)
+
+    axtrain = Axis(fig[1, 1]; title="training", xticks=(1:3, species), ylabel="error rate")
+    axval = Axis(
+        fig[1, 2];
+        title="validation",
+        xticks=(1:3, species),
+        yticksvisible=false,
+        yticklabelsvisible=false,
+    )
+    linkaxes!(axtrain, axval)
+
+    colors = CairoMakie.Makie.wong_colors(1)
+    for (key, gdf) in pairs(groupby(error_rates, :train))
+        ax = key.train ? axtrain : axval
+        models = levelcode.(gdf.model)
+        barplot!(
+            ax, levelcode.(gdf.species), gdf.error_rate; dodge=models, color=colors[models]
+        )
+    end
+
+    # Add common label for x axes.
+    Label(fig[2, :], "species"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    labels = levels(error_rates.model)
+    elements = [PolyElement(; polycolor=colors[i]) for i in 1:length(labels)]
+    Legend(fig[1, 3], elements, labels, "model"; framevisible=false)
+
+    fig
+end
+```
+
+We see that on the validation dataset all models misclassify `Chinstrap` penguins to a large extent, probably due to the overlap of the measurements of the penguin species shown in @fig-penguins.
+As expected, generally the models perform better on the training dataset.
+Nevertheless, apart from `XGBoost` the models classify more than 50% of the `Chinstrap` penguins incorrectly even on the training dataset.
+Generally, `XGBoost` seems to be the most accurate model.
+
+### Reliability diagrams
+
+The error rate does not convey any information about the confidence estimates for each mode, yet alone the predicted categorical distributions.
+To obtain a better understanding of the predicted probabilities, we plot histograms of the confidence estimates of the models in @fig-penguins-confidence.
+Note that these are projections of the predicted categorical distribution and hence capture only a sub-aspect of the models.
+
+```{julia}
+#| include: false
+function confidence(model, X)
+    predictions = MLJ.predict(model, X)
+    mode = MLJ.predict_mode(model, X)
+    return pdf.(predictions, mode)
+end
+
+predicted_confidence = DataFrame(
+    :id => 1:nrow(penguins),
+    :train => train,
+    :LogReg => confidence(logreg, X),
+    :NaiveBayes => confidence(naivebayes, X),
+    :XGBoost => confidence(xgboost, X),
+)
+```
+
+```{julia}
+#| echo: false
+#| label: fig-penguins-confidence
+#| fig-cap: "Distribution of the confidence estimates of the three considered models. Histograms are computed with 15 bins of equal width."
+#| fig-format: pdf
+let predicted_confidence = predicted_confidence
+    # Convert confidence estimates to long format.
+    data = stack(
+        predicted_confidence,
+        Not([:id, :train]);
+        variable_name=:model,
+        value_name=:confidence,
+    )
+    @transform! data :model = categorical(:model)
+
+    # Compute bins based on range of data.
+    # Increase the last edge by eps() to ensure that the maximum values are included in the last bin.
+    minconfidence, maxconfidence = extrema(data.confidence)
+    nbins = 15
+    bins = range(minconfidence, nextfloat(maxconfidence); length=nbins + 1)
+
+    # Create figure.
+    fig = Figure(; resolution=(800, 500))
+
+    # Plot distribution of confidence estimates.
+    colors = CairoMakie.Makie.wong_colors(1)
+    nmodels = length(levels(data.model))
+    for (i, (key, df)) in enumerate(pairs(groupby(data, :model)))
+        nrow = i
+        for (key2, df2) in pairs(groupby(df, :train))
+            istrain = key2.train
+
+            # Create new axis.
+            ncol = istrain ? 1 : 2
+            ax = Axis(
+                fig[nrow, ncol + 1];
+                xticksvisible=nrow == nmodels,
+                xticklabelsvisible=nrow == nmodels,
+                yticksvisible=ncol == 1,
+                yticklabelsvisible=ncol == 1,
+            )
+
+            # Add titles to first row.
+            if nrow == 1
+                ax.title = key2.train ? "training" : "validation"
+            end
+
+            # Plot histogram.
+            hist!(ax, df2.confidence; bins, normalization=:probability)
+
+            # Add labels to the right of the second column.
+            if ncol == 2
+                Label(
+                    fig[nrow, ncol + 2],
+                    string(key.model);
+                    rotation=-pi / 2,
+                    font=ax.titlefont,
+                    textsize=ax.titlesize,
+                    valign=:center,
+                    padding=(ax.titlegap[], 0, 0, 0),
+                    tellheight=false,
+                )
+            end
+        end
+    end
+
+    # Add common label for x and y axes.
+    Label(fig[end + 1, 2:3], "confidence"; valign=:top, padding=(0, 0, 0, 5))
+    Label(
+        fig[1:(end - 1), 1],
+        "frequency";
+        valign=:center,
+        rotation=pi / 2,
+        padding=(0, 5, 0, 0),
+    )
+
+    # Fix spaces.
+    rowgap!(fig.layout, nmodels, 0)
+    colgap!(fig.layout, 1, 0)
+    colgap!(fig.layout, 3, 0)
+
+    # Ensure that x and y axes are synced.
+    linkxaxes!(contents(fig[1:(end - 1), 2:3])...)
+    for i in 1:nmodels
+        linkyaxes!(content(fig[i, 2]), content(fig[i, 3]))
+    end
+
+    fig
+end
+```
+
+Clearly, not only the accuracy but also the confidence estimates of the models are quite different.
+Model `XGBoost` shows not only the most accurate but also most confident predictions.
+The confidence estimates of `NaiveBayes` are more equally spread out with a smaller peak close to 100% confidence.
+The `LogReg` model shows two main clusters, one around 60% and one close to 100% confidence.
+Generally, we see that the less accurate models are also less confident in their predictions.
+
+This trend is desired as we do not want to obtain inaccurate predictions with high confidence.
+However, it does not ensure that the models are neither over- nor underconfident.
+The reliability diagrams in @fig-penguins-reldiags are a first steps towards investigating this question systematically.
+To simplify the interpretation and the comparison of the diagrams we plot the deviation from the ideal and include consistency bars with 95% coverage, i.e., we use the default settings in [ReliabilityDiagrams.jl]{.pkg}.
+The confidence estimates *on the validation dataset* are binned into 15 bins of approximately equal number of samples.
+Since `XGBoost` yields more predictions with high confidence, most bins are in the range between 90% and 100% confidence.
+On the other hand, due to the less confident predictions of `LogReg` many bins of that model are between 50% and 75% confidence.
+The custom axis scale ($x \mapsto \sqrt[3]{1 - x}$) makes it easier to distinguish confidence estimates close to 100% confidence as typically less confident predictions are considered less trustworthy anyway.
+
+```{julia}
+#| echo: false
+#| label: fig-penguins-reldiags
+#| fig-cap: "Reliability diagrams of the three classification models."
+#| fig-format: pdf
+# Axis scale
+xscale(x) = cbrt(1 - x)
+CairoMakie.Makie.inverse_transform(::typeof(xscale)) = x -> 1 - x^3
+CairoMakie.Makie.MakieLayout.defaultlimits(::typeof(xscale)) = (0.0, 1.0)
+function CairoMakie.Makie.MakieLayout.defined_interval(::typeof(xscale))
+    return CairoMakie.Makie.OpenInterval(-Inf, Inf)
+end
+
+let predicted_species = predicted_species[validxs, :],
+    predicted_confidence = predicted_confidence[validxs, :]
+    # Compute predictions
+    stacked_species = stack(
+        select(predicted_species, Not([:train])),
+        Not([:id, :species]);
+        variable_name=:model,
+        value_name=:predicted_species,
+    )
+    stacked_confidence = stack(
+        select(predicted_confidence, Not([:train])),
+        Not([:id]);
+        variable_name=:model,
+        value_name=:confidence,
+    )
+    predictions = innerjoin(
+        stacked_species, stacked_confidence; makeunique=true, on=[:id, :model]
+    )
+
+    fig = Figure(; resolution=(800, 500))
+
+    # Plot reliability diagrams
+    for (i, (key, df)) in enumerate(pairs(groupby(predictions, :model)))
+        #nrow, ncol = fldmod1(i, 2)
+        nrow = i
+        ncol = 1
+        ax = Axis(
+            fig[nrow, ncol + 1];
+            xscale=xscale,
+            xticksvisible=nrow == 3,
+            xticklabelsvisible=nrow == 3,
+            yticksvisible=ncol == 1,
+            yticklabelsvisible=ncol == 1,
+            xticks=[0.5, 0.75, 0.9, 0.99, 1],
+        )
+        reliability!(
+            ax,
+            df.confidence,
+            df.predicted_species .== df.species;
+            binning=EqualMass(; n=15),
+            label="data",
+        )
+        hlines!(ax, 0; color=:black, linestyle=:dash, label="ideal")
+
+        # Add labels to the right of the plot.
+        Label(
+            fig[nrow, ncol + 2],
+            string(key.model);
+            rotation=-pi / 2,
+            font=ax.titlefont,
+            textsize=ax.titlesize,
+            valign=:center,
+            padding=(ax.titlegap[], 0, 0, 0),
+            tellheight=false,
+        )
+    end
+
+    # Add common label to x and y axes
+    Label(fig[4, 1:3], "confidence"; valign=:top, padding=(0, 0, 0, 5))
+    Label(fig[1:3, 1], "deviation"; valign=:center, padding=(0, 5, 0, 0), rotation=π / 2)
+    colgap!(fig.layout, 1, 0)
+    colgap!(fig.layout, 2, 0)
+    rowgap!(fig.layout, 3, 0)
+
+    # Add legend
+    Legend(fig[1:3, 4], content(fig[2, 2]); framevisible=false)
+
+    ## Ensure that x- and y-axes are the same
+    linkxaxes!(contents(fig[1:3, 2])...)
+
+    fig
+end
+```
+
+The reliability diagrams in @fig-penguins-reldiags suggest that `XGBoost` might not be calibrated.
+For multiple bins of confidence estimates the consistency bars indicate that the deviations are larger than what we would expect from a calibrated model.
+In particular, `XGBoost` seems to be overconfident for predictions with between 90% and 99% predicted confidence.
+The deviations of `LogReg` and `NaiveBayes` are smaller and covered by the consistency bars.
+Thus based on the reliability diagrams our hypothesis is that `XGBoost` is not calibrated but `LogReg` and `NaiveBayes` might actually be calibrated.
+
+### Calibration errors
+
+So far all visualizations and model comparions were based on accuracy and confidence estimates.
+Next we compare the calibration error of the models, taking into account the predictions for all three classes.
+We use the unbiased estimator of the squared KCE with tensor product kernels of the form
+
+$$
+k_{\lambda}((p, y), (p', y')) = \delta(y, y') \exp{\bigg(1 + \frac{\|p - p'\|_2^2}{4\lambda^2}\bigg)^{-2}},
+$$
+
+where $\lambda > 0$ is a length scale hyperparameter.
+That is, the kernel is a tensor product of a white kernel on the target space and a rational quadratic kernel with length scale $\lambda$ on the space of predictions.
+
+```{julia}
+#| include: false
+function lowentropy(model, X, y; rows=nothing, threshold=entropy([0.9, 0.1]))
+    size(X, 1) == length(y) ||
+        throw(DimensionMismatch("number of features and targets is not equal"))
+    if rows !== nothing
+        X = X[rows, :]
+        y = y[rows]
+    else
+        rows = axes(X, 1)
+    end
+    preds = pdf(MLJ.predict(model, X), levels(y))
+    return [
+        row for (i, row) in zip(axes(preds, 1), rows) if entropy(preds[i, :]) <= threshold
+    ]
+end
+
+length_lowentropy(model, X, y; kwargs...) = length(lowentropy(model, X, y; kwargs...))
+```
+
+```{julia}
+#| echo: false
+#| output: asis
+Markdown.parse(
+    """
+    As illustrated by the synthetic example in @sec-calibration-errors, the length scale is a crucial hyperparameter.
+    In @fig-penguins-skce-estimates we see the estimates for length scales of different orders of magnitude.
+    In addition to the estimates on the full validation dataset ($(length(validxs)) measurements) we also show the estimates based on only low-entropy predictions on the validation dataset.
+    As in the synthetic examples above, we demand that the entropy of these low-entropy predictions is less than or equal to the entropy of \$\\operatorname{Categorical}([0.9, 0.1, 0.0])\$.
+    This choice implies that the maximum class probability of the low-entropy predictions is greater than or equal to 0.9.
+    In total, the `LogReg` model has $(length_lowentropy(logreg, X, y; rows=validxs)) low-entropy predictions on the validation dataset, `NaiveBayes` $(length_lowentropy(naivebayes, X, y; rows=validxs)) low-entropy predictions, and `XGBoost` has $(length_lowentropy(xgboost, X, y; rows=validxs)) low-entropy predictions.
+    Unfortunately, the small number of low-entropy predictions for `LogReg` and, to a smaller extent, `NaiveBayes` means that there is not enough data for performing a hyperparameter optimization of the length scale on a subset of the validation dataset.
+    """;
+    flavor=:common,
+)
+```
+
+```{julia}
+#| include: false
+# Compute squared KCE estimates for different kernels and length scales
+function skce_estimates(
+    models,
+    X,
+    y::AbstractVector;
+    lengthscales=exp10.(-3:1),
+    rows=nothing,
+    threshold=entropy([0.9, 0.1]),
+)
+    size(X, 1) == length(y) ||
+        throw(DimensionMismatch("number of features and targets is not equal"))
+    if rows !== nothing
+        X = X[rows, :]
+        y = y[rows]
+    end
+    df = DataFrame(; lengthscale=categorical(lengthscales))
+    for (name, model) in pairs(models)
+        predictions = RowVecs(pdf(MLJ.predict(model, X), levels(y)))
+        outcomes = levelcode.(y)
+
+        # Estimates based on all predictions.
+        estimates = map(lengthscales) do lengthscale
+            kernel =
+                with_lengthscale(RationalQuadraticKernel(), lengthscale) ⊗ WhiteKernel()
+            return SKCE(kernel)(predictions, outcomes)
+        end
+        df[!, name] = estimates
+
+        # Estimates based on low-entropy predictions.
+        idxs = [i for (i, preds) in enumerate(predictions) if entropy(preds) <= threshold]
+        predictions = predictions[idxs]
+        outcomes = outcomes[idxs]
+        estimates = map(lengthscales) do lengthscale
+            kernel =
+                with_lengthscale(RationalQuadraticKernel(), lengthscale) ⊗ WhiteKernel()
+            return SKCE(kernel)(predictions, outcomes)
+        end
+        df[!, Symbol(name, :_lowentropy)] = estimates
+    end
+    return df
+end
+```
+
+```{julia}
+#| echo: false
+#| label: fig-penguins-skce-estimates
+#| fig-cap: "Estimates of the squared kernel calibration error of the three classification models. The left figure shows estimates for all predictions on the validation dataset whereas the esitmates in the right figure only consider low-entropy predictions on the validation dataset."
+#| fig-format: pdf
+function plot_penguins_skce_estimates(data)
+    # Convert estimates to long format.
+    data_all = stack(
+        data,
+        filter(x -> x !== "lengthscale" && !endswith(x, "_lowentropy"), names(data)),
+        [:lengthscale];
+        variable_name=:model,
+        value_name=:skce,
+    )
+    @transform! data_all :model = categorical(:model)
+    data_low = stack(
+        data,
+        filter(x -> endswith(x, "_lowentropy"), names(data)),
+        [:lengthscale];
+        variable_name=:model,
+        value_name=:skce,
+    )
+    @transform! data_low :model = categorical(chop.(:model; tail=11))
+
+    fig = Figure(; resolution=(800, 300))
+
+    lengthscales = levels(data.lengthscale)
+    xticks = (1:length(lengthscales), string.(lengthscales))
+    ax_all = Axis(fig[1, 1]; title="all", ylabel="squared KCE estimate", xticks)
+    ax_low = Axis(
+        fig[1, 2];
+        title="low entropy",
+        yticksvisible=false,
+        yticklabelsvisible=false,
+        xticks,
+    )
+
+    colors = CairoMakie.Makie.wong_colors(1)
+    for (ax, df) in ((ax_all, data_all), (ax_low, data_low))
+        models = levelcode.(df.model)
+        barplot!(
+            ax, levelcode.(df.lengthscale), df.skce; dodge=models, color=colors[models]
+        )
+    end
+
+    # Add common label.
+    Label(fig[2, :], "length scale"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    labels = levels(data_all.model)
+    elements = [PolyElement(; polycolor=colors[i]) for i in 1:length(labels)]
+    Legend(fig[1, 3], elements, labels, "model"; framevisible=false)
+
+    # Sync axes.
+    linkaxes!(ax_all, ax_low)
+
+    return fig
+end
+
+let
+    skce_data = skce_estimates(
+        (LogReg=logreg, NaiveBayes=naivebayes, XGBoost=xgboost), X, y; rows=validxs
+    )
+    plot_penguins_skce_estimates(skce_data)
+end
+```
+
+As in the reliability diagrams in @fig-penguins-reldiags above, also @fig-penguins-skce-estimates points to a difference between `XGBoost` on one hand and `LogReg` and `NaiveBayes` on the other.
+Note that due to the different distribution of predictions, as seen in the binary case in @fig-penguins-confidence, it can be misleading to compare estimates with the same length scale:
+A length scale that is an appropriate choice for one model could be already too large or too small for another model.
+Nevertheless, in @fig-penguins-skce-estimates we can see a clear difference between the models.
+We see that the estimates of the calibration error for `XGBoost` are relatively large, in particular for length scales of 0.1 and 1.0 and low-entropy predictions, whereas the estimates for `LogReg` and `NaiveBayes` are generally much smaller and often even negative.
+Hence the calibration error estimates confirm the impression we gained from the reliability diagrams of their confidence estimates in @fig-penguins-reldiags:
+It seems that `XGBoost` is less calibrated than `LogReg` and `NaiveBayes`.
+
+```{julia}
+#| echo: false
+#| output: asis
+function median_heuristic(model, X, y)
+    size(X, 1) == length(y) ||
+        throw(DimensionMismatch("number of features and targets is not equal"))
+    predictions = pdf(MLJ.predict(model, X), levels(y))'
+    return median_heuristic(predictions)
+end
+
+function median_heuristic_lowentropy(model, X, y)
+    idxs = lowentropy(model, X, y)
+    return median_heuristic(model, X[idxs, :], y[idxs])
+end
+
+Xtrain = X[trainidxs, :]
+ytrain = y[trainidxs]
+
+Markdown.parse(
+    """
+    We note that the median heuristic on the trainng dataset would have selected length scales of around $(median_heuristic(logreg, Xtrain, ytrain)), $(median_heuristic(naivebayes, Xtrain, ytrain)), and $(median_heuristic(xgboost, Xtrain, ytrain)) for `LogReg`, `NaiveBayes`, and `XGBoost`, respectively.
+    Based on the low-entropy predictions on the training dataset the heuristic would suggest choosing length scales of around $(median_heuristic_lowentropy(logreg, Xtrain, ytrain)), $(median_heuristic_lowentropy(naivebayes, Xtrain, ytrain)), and $(median_heuristic_lowentropy(xgboost, Xtrain, ytrain)) for `LogReg`, `NaiveBayes`, and `XGBoost`.
+    The range of length scales considered in @fig-penguins-skce-estimates covers these values, and hence the median heuristic provides some justification for the chosen length scales.
+    Additionally, we see that at least for `LogReg` and `NaiveBayes` the median heuristic yields vastly different length scales depending on whether all training data points or only the low-entropy predictions are considered.
+    This highlights once more that it might be misleading to choose the same length scale for all three models when analyzing and comparing calibration.
+    """;
+    flavor=:common,
+)
+```
+
+### Calibration tests
+
+One problem with the analysis based on the calibration error estimates shown in @fig-penguins-skce-estimates is that we only see that the estimates for `XGBoost` are *relatively* large compared with `LogReg` and `NaiveBayes`.
+However, we don't know if `LogReg` and `NaiveBayes` are actually calibrated and `XGBoost` uncalibrated, or if the differences can be explained, e.g., by the different distributions of predictions.
+To improve interpretability and to simplify the model comparison, we perform calibration tests for all models.
+
+We estimate the asymptotic $p$ values with 10000 bootstrap iterations, based on the same predictions, the same kernel, and the same set of length scales as in @fig-penguins-skce-estimates.
+@fig-penguins-pvalue-estimates shows the resulting estimates on the full validation dataset (left figure) and the low-entropy predictions on the validation dataset (right figure).
+
+```{julia}
+#| include: false
+Random.seed!(100)
+
+pvalue_data =
+    let models = (LogReg=logreg, NaiveBayes=naivebayes, XGBoost=xgboost),
+        X = X,
+        y = y,
+        rows = validxs
+
+        size(X, 1) == length(y) ||
+            throw(DimensionMismatch("number of features and targets is not equal"))
+        if rows !== nothing
+            X = X[rows, :]
+            y = y[rows]
+        end
+
+        lengthscales = exp10.(-3:1)
+        threshold = entropy([0.9, 0.1])
+
+        df = DataFrame(; lengthscale=categorical(lengthscales))
+        for (name, model) in pairs(models)
+            predictions = RowVecs(pdf(MLJ.predict(model, X), levels(y)))
+            outcomes = levelcode.(y)
+
+            # Estimates based on all predictions.
+            estimates = map(lengthscales) do lengthscale
+                kernel =
+                    with_lengthscale(RationalQuadraticKernel(), lengthscale) ⊗ WhiteKernel()
+                return pvalue(
+                    AsymptoticSKCETest(kernel, predictions, outcomes);
+                    bootstrap_iters=10_000,
+                )
+            end
+            df[!, name] = estimates
+
+            # Estimates based on low-entropy predictions.
+            idxs = [
+                i for (i, preds) in enumerate(predictions) if entropy(preds) <= threshold
+            ]
+            predictions = predictions[idxs]
+            outcomes = outcomes[idxs]
+            estimates = map(lengthscales) do lengthscale
+                kernel =
+                    with_lengthscale(RationalQuadraticKernel(), lengthscale) ⊗ WhiteKernel()
+                return pvalue(
+                    AsymptoticSKCETest(kernel, predictions, outcomes);
+                    bootstrap_iters=10_000,
+                )
+            end
+            df[!, Symbol(name, :_lowentropy)] = estimates
+        end
+
+        df
+    end
+```
+
+```{julia}
+#| echo: false
+#| label: fig-penguins-pvalue-estimates
+#| fig-cap: "Estimates of the $p$ value of the three classification models. The left figure shows estimates for all predictions on the validation dataset whereas the estimates in the right figure only consider low-entropy predictions on the validation dataset."
+#| fig-format: pdf
+let data = pvalue_data
+    # Convert estimates to long format.
+    data_all = stack(
+        data,
+        filter(x -> x !== "lengthscale" && !endswith(x, "_lowentropy"), names(data)),
+        [:lengthscale];
+        variable_name=:model,
+        value_name=:pvalue,
+    )
+    @transform! data_all :model = categorical(:model)
+    data_low = stack(
+        data,
+        filter(x -> endswith(x, "_lowentropy"), names(data)),
+        [:lengthscale];
+        variable_name=:model,
+        value_name=:pvalue,
+    )
+    @transform! data_low :model = categorical(chop.(:model; tail=11))
+
+    fig = Figure(; resolution=(800, 300))
+
+    lengthscales = levels(data.lengthscale)
+    xticks = (1:length(lengthscales), string.(lengthscales))
+    ax_all = Axis(fig[1, 1]; title="all", ylabel="p value estimate", xticks)
+    ax_low = Axis(
+        fig[1, 2];
+        title="low entropy",
+        yticksvisible=false,
+        yticklabelsvisible=false,
+        xticks,
+    )
+
+    colors = CairoMakie.Makie.wong_colors(1)
+    for (ax, df) in ((ax_all, data_all), (ax_low, data_low))
+        models = levelcode.(df.model)
+        barplot!(
+            ax, levelcode.(df.lengthscale), df.pvalue; dodge=models, color=colors[models]
+        )
+    end
+
+    # Add common label.
+    Label(fig[2, :], "length scale"; valign=:top, padding=(0, 0, 0, 5))
+    rowgap!(fig.layout, 1, 0)
+
+    # Add legend.
+    labels = levels(data_all.model)
+    elements = [PolyElement(; polycolor=colors[i]) for i in 1:length(labels)]
+    Legend(fig[1, 3], elements, labels, "model"; framevisible=false)
+
+    # Sync axes.
+    linkaxes!(ax_all, ax_low)
+
+    fig
+end
+```
+
+```{julia}
+#| echo: false
+#| output: asis
+Markdown.parse(
+    """
+    We see that indeed the \$p\$ value estimates for `XGBoost` are small for length scales of 0.01, 0.1, and 1, both on the full validation dataset (< $(round(maximum(pvalue_data[in.(pvalue_data.lengthscale, ([0.01, 0.1, 1.0],)), :XGBoost]), RoundUp; sigdigits=2))) and for the low-entropy predictions (< $(round(maximum(pvalue_data[in.(pvalue_data.lengthscale, ([0.01, 0.1, 1.0],)), :XGBoost_lowentropy]), RoundUp; sigdigits=2))).
+    Hence for these length scales the probability to observe such large estimates of the calibration error as for `XGBoost` in @fig-penguins-skce-estimates with a calibrated model is small, and therefore we reject the null hypothesis that `XGBoost` is calibrated for small significance levels.
+
+    When all validation data points are considered, the \$p\$ value estimates for `LogReg` and `NaiveBayes` are large (> $(round(minimum(pvalue_data[:, :LogReg]), RoundDown; sigdigits=2)) and > $(round(minimum(pvalue_data[:, :NaiveBayes]), RoundDown; sigdigits=2)) for all length scales and > $(round(minimum(pvalue_data[in.(pvalue_data.lengthscale, ([0.01, 0.1, 1, 10],)), :LogReg]), RoundDown; sigdigits=2)) and > $(round(minimum(pvalue_data[in.(pvalue_data.lengthscale, ([0.01, 0.1, 1, 10],)), :NaiveBayes]), RoundDown; sigdigits=2)) for length scales of 0.01, 0.1, 1, and 10).
+    Hence based on this calibration test it seems that estimates such as for `LogReg` and `NaiveBayes` in @fig-penguins-skce-estimates can be observed with reasonably high probability for calibrated models.
+    Thus it is not possible to reject the null hypothesis that `LogReg` and `NaiveBayes` are calibrated at common significance levels.
+
+    Interestingly, however, if one focuses only on low-entropy predictions, then `LogReg` and `NaiveBayes` show small \$p\$ values for many length scales (< $(round(maximum(pvalue_data[in.(pvalue_data.lengthscale, ([0.1, 1, 10],)), :LogReg_lowentropy]), RoundUp; sigdigits=2)) for length scales of 0.1, 1, and 10, and < $(round(maximum(pvalue_data[in.(pvalue_data.lengthscale, ([0.01, 0.1, 1, 10],)), :NaiveBayes_lowentropy]), RoundUp; sigdigits=2)) for length scales of 0.01, 0.1, 1, and 10, respectively).
+    Hence for these length scales the calibration test suggests that the null hypothesis that `LogReg` and `NaiveBayes` are calibrated should be rejected at small significance values.
+    """;
+    flavor=:common,
+)
+```
+
+The decreased $p$ value estimates for low-entropy predictions match our observations in @fig-penguins-skce-estimates.
+There calibration error estimates on the low-entropy predictions are larger than estimates on the full validation dataset.
+However, in @fig-penguins-skce-estimates the errors seem small also for low-entropy predictions, in particular compared with the estimates for `XGBoost`, and arguably it is impossible to notice that the calibration errors are unexpectedly large for a calibrated model solely on @fig-penguins-skce-estimates. One caveat though is the very small number of low-entropy predictions of `LogReg` and `NaiveBayes` which increases the variance of the $p$ value estimates.
+Additionally, the small length scales selected by the median heuristic for the low-entropy predictions of `LogReg` and `NaiveBayes` indicate that possibly even length scales of 0.1 are inappropriately large.
+
+## Summary and discussion {#sec-summary}
+
+In this paper we have presented [CalibrationAnalysis.jl]{.pkg}, a [Julia]{.proglang} package for analyzing calibration of probabilistic predictive models.
+Calibrated models are neither over- nor underconfident and hence particularly desirable in safety-critical applications.
+The presented software package supports visual inspections, estimations, and hypothesis testing of calibration.
+Importantly, the provided tools do not only cover binary classification models but also models for multi-class classification and regression problems.
+The [Python]{.proglang} package [pycalibration]{.pkg} and the [R]{.proglang} package [rcalibration]{.pkg} provide interfaces to [CalibrationAnalysis.jl]{.pkg} for users that are not familiar with the [Julia]{.proglang} programming language.
+
+We applied the software framework both on synthetic examples with datasets from a calibrated and an uncalibrated model and for analyzing different models for a real-world classification problem.
+The case study showed that reliability diagrams and calibration errors can be valuable for assessing calibration but one should be aware off their shortcomings and possibly misleading interpretations.
+We demonstrated that some of these issues are fixed by calibration tests.
+In particular, calibration tests have a clear interpretation with a meaningful scale.
+
+## Computational details {.unnumbered}
+
+```{julia}
+#| echo: false
+#| output: asis
+Markdown.parse(
+    """
+    This work was done with [Julia]{.proglang} $(VERSION) [@Julia-2017] and the [Julia]{.proglang} packages [BenchmarkTools.jl]{.pkg} [@BenchmarkTools.jl-2016], [CairoMakie.jl]{.pkg} [@CairoMakie.jl-2021], [CalibrationAnalysis.jl]{.pkg} [@Widmann:2019; @Widmann:2021], [CategoricalArrays.jl]{.pkg} [@CategoricalArrays.jl-2022], [DataFrames.jl]{.pkg} [@DataFrames.jl-2022], [Distributions.jl]{.pkg} [@Distributions.jl-2019; @Distributions.jl-2021], [MLJ.jl]{.pkg} [@MLJ.jl-2020a; @MLJ.jl-2020b], [PalmerPenguins.jl]{.pkg} [@PalmerPenguins.jl-2014], and [Plots.jl]{.pkg} [@Plots.jl-2022].
+    """;
+    flavor=:common,
+)
+```
+
+:::{.codechunk}
+
+```{julia}
+versioninfo()
+```
+
+:::
+
+The paper is written with the open-source publishing system [Quarto]{.pkg} [@Quarto:2022].
+The source files of the paper, including the code for all examples and a `Manifest.toml` file with a list of the versioned [Julia]{.pkg} packages, are included in the supplementary material.
+They can be used to reproduce the results in this paper.
+
+## Acknowledgments {.unnumbered}
+
+This work was financially supported by the Centre for Interdisciplinary Mathematics (CIM) at Uppsala University, Sweden, by the Swedish Research Council via the projects *Counterfactual Prediction Methods for Heterogeneous Populations* (contract number: 2018-05040) and *Handling Uncertainty in Machine Learning Systems* (contract number: 2020-04122), by the Swedish Foundation for Strategic Research via the project *ASSEMBLE* (contract number: RIT15-0012), by the Wallenberg AI, Autonomous Systems and Software Program (WASP) funded by the Knut and Alice Wallenberg Foundation, and by ELLIIT.
+
+## References {.unnumbered}
+
+:::{#refs}
+
+:::
