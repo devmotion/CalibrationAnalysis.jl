@@ -37,6 +37,7 @@ author:
     affiliations:
       - ref: UU
   - name: Dave Zachariah
+    orcid: 0000-0002-6698-0166
     email: dave.zachariah@it.uu.se
     affiliations:
       - ref: UU
@@ -95,9 +96,6 @@ using Plots
 using Markdown
 using Random
 using Statistics
-
-# Avoid confirmation dialog and accept license of Palmer penguins data
-ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
 ```
 
 ## Introduction {#sec-intro}
@@ -106,7 +104,7 @@ Predictive models provide mathematical tools for reasoning and decision making.
 However, often it is crucial to know how confident a model is about its predictions to be able to interpret the predictions.
 Probabilistic predictive models report such confidence estimates by predicting probability distributions instead of merely providing point predictions.
 The reported probability distributions convey more information as they also show how likely specific predicted values---such as the point predictions of a non-probabilistic model---are according to the model.
-Probabilistic predictive models are used prominently in meteorology [see, e.g., @Cooke1906A; @Cooke1906B; @Murphy:1977; @DeGroot:1983; @ivarssonProbabilityForecastingSweden1986; @Broecker:2007] but also arise more generally as posterior predictive distributions in Bayesian inference.
+Probabilistic predictive models are used prominently in meteorology [see, e.g., @Cooke1906A; @Cooke1906B; @Murphy:1977; @DeGroot:1983; @ivarssonProbabilityForecastingSweden1986; @Broecker:2007] but also arise more generally in machine learning models and as posterior predictive distributions in Bayesian inference.
 
 Unfortunately, probabilistic models do not necessarily report uncertainties faithfully.
 For instance, modern deep neural network models were found to be over-confident in many cases [@Guo:2017].
@@ -119,11 +117,11 @@ The software package helps users to assess if these predictions, and hence the p
 
 Typically, calibration is inspected with reliability diagrams [@Murphy:1977; @Broecker:2007; @Broecker:2008; @Vaicenavicius:2019].
 They are available in a range of different variants, and functionality for generating such plots exists in multiple packages, such as in the [Python]{.proglang} package [sklearn]{.pkg} [@scikit-learn:2011] or the [R]{.proglang} package [reliabilitydiag]{.pkg} [@Dimitriadis+Gneiting+Jordan:2021].
-[CalibrationAnalysis.jl]{.pkg} supports non-standard modifications of reliability diagrams, such as consistency bars [@Broecker:2007], that simplify their statistical interpretation.
+[CalibrationAnalysis.jl]{.pkg} supports standard reliability diagrams as well as non-standard modifications thereof, such as consistency bars [@Broecker:2007], that simplify their statistical interpretation.
 
-A special feature of [CalibrationAnalysis.jl]{.pkg} are calibration error estimators for general probabilistic models.
+A key feature of [CalibrationAnalysis.jl]{.pkg} are calibration error estimators for general probabilistic models.
 Most existing research and tools focuses on calibration analysis of classification models, with the notable exception of a [Python]{.proglang} package for distribution calibration of regression models [@Song:2019].
-In contrast, [CalibrationAnalysis.jl]{.pkg} supports the estimation of calibration errors for classification and regression models.
+In contrast, [CalibrationAnalysis.jl]{.pkg} supports the estimation of calibration errors for both classification and regression models.
 These estimators were published recently [@Widmann:2019; @Widmann:2021], and to the best of our knowledge [CalibrationAnalysis.jl]{.pkg} is the first and only package in which they are implemented.
 Additionally, [CalibrationAnalysis.jl]{.pkg} supports the estimation of the commonly used expected calibration error (ECE) for classification models [@Guo:2017; @Vaicenavicius:2019; @Naeini:2015].
 
@@ -135,7 +133,7 @@ H_0 \colon \text{model is calibrated}.
 $$
 
 Most of these tests are based on the recently proposed calibration errors by @Widmann:2021.
-The [Python]{.proglang} package [t-cal]{.pkg} implements another even more recent calibration test based on the ECE [@leeTCalOptimalTest2022].
+The [Python]{.proglang} package [t-cal]{.pkg} implements another calibration test based on the ECE [@leeTCalOptimalTest2022].
 We are not aware of any other major software packages that support calibration tests.
 
 Note that [CalibrationAnalysis.jl]{.pkg} is focused on the analysis of calibration.
@@ -155,12 +153,12 @@ Mathematically, both $X$ and $Y$ are random variables.
 In the common case where target $Y$ takes a finite discrete set of values such as $\{1, 2, \ldots, n\}$ we deal with a classification problem.
 
 A probabilistic predictive model $P$ outputs probability distributions of $Y$ instead of point predictions.
-For instance, for a feature $X$ the model *predicts a distribution of $Y$* which we denote with $P_X$ to illustrate its dependency on $X$.
+For instance, for a feature $X$ the model *predicts a distribution of $Y$* which we denote with $P_X$ to illustrate its dependence on $X$.
 
 For classification problems, $P_X$ is a categorical distribution of the target values that, usually, depends on the given feature $X$.
 In a regression setting, $P_X$ could be, e.g., a normal distribution of target values.
 
-Generally, such probabilistic forecasts allow to specify fuzzy uncertainties and are therefore used for many prediction problems.
+Such probabilistic forecasts allow to quantify uncertainties and are therefore used for many prediction problems.
 An ideal model would predict the *conditional distribution $\Prob(Y \,|\, X)$* of $Y$ for feature $X$ but in many cases this is not possible.
 Instead, we hope that the prediction $P_X$ is a sufficiently close approximation of $\Prob(Y \,|\, X)$.
 
@@ -175,7 +173,7 @@ $$
 $$ {#eq-calibration}
 
 Importantly, calibration is different from model accuracy.
-For instance, the true model $\Prob(Y \,|\, X)$ is calibrated but generally there are multiple, also less accurate, models:
+For instance, the ideal model $\Prob(Y \,|\, X)$ is calibrated but generally there are multiple, also less accurate, models:
 Any model of the form
 
 $$
@@ -185,8 +183,8 @@ $$
 for some measurable function $f$ is calibrated [@Broecker:2009; @Vaicenavicius:2019].
 Hence in particular also the constant model $\Prob(Y)$ of the marginal distribution of the targets is calibrated.
 
-Most commonly, calibration is defined and analyzed for binary classification problems where prediction $P_X$ is a Bernoulli distribution and typically identified with its success probability.
-However, the definition in @eq-calibration has a wider applicability and covers multi-class classification as well as regression problems.
+Most commonly, calibration is defined and analyzed for binary classification problems where the prediction $P_X$ is a Bernoulli distribution and typically identified with its success probability.
+However, the definition in @eq-calibration has a wider applicability and covers multi-class classification as well as regression and other types of problems.
 
 ::: {.callout}
 
@@ -206,7 +204,7 @@ $$
 (P_{X_i}, Y_i)_{i=1}^n
 $$
 
-of $n$ predictions $P_{X_1}, \ldots, P_{X_n}$ and corresponding observations $Y_1, \ldots, Y_n$.
+of $n$ probabilistic predictions $P_{X_1}, \ldots, P_{X_n}$ and corresponding observations $Y_1, \ldots, Y_n$.
 We assume that $(P_{X_i}, Y_i)_{i=1}^n$ are independent and identically distributed.
 Typically, the validation dataset is generated from a dataset $(X_i, Y_i)_{i=1}^n$ of features and corresponding observations by computing the predictions $P_{X_i}$ using the model $P$ of interest.
 As discussed above, however, for the purpose of our analysis it is irrelevant how the probabilistic predictions $P_{X_i}$ are obtained.
@@ -284,7 +282,7 @@ $$
 for all predictions $p_{i}$.
 
 Additionally, we generate another validation dataset $(q_1, y_{1}), \ldots, (q_{n}, y_{n})$ with the same observations but different predictions that corresponds to an uncalibrated model.
-For each prediction $p_{i}$, we compute an underconfident prediction $q_{i}$ as convex combination of $p_{i}$ and the uniform categorical distribution $u$ with equal probability $1/d$ for each class.
+For each prediction $p_{i}$, we compute an underconfident prediction $q_{i}$ as a convex combination of $p_{i}$ and the uniform categorical distribution $u$ with equal probability $1/d$ for each class.
 That is, the underconfident prediction $q_{i}$ is defined as
 
 $$
@@ -328,12 +326,8 @@ Hence deviations from the diagonal of the first orthant in a reliability diagram
 
 To be able to visualize the multi-class predictions in our synthetic datasets, we have to project them to predictions of a binary classification model.
 Here we consider predictions of the mode with corresponding confidence estimates.
-That is, instead of the three-class classification model $P$ we study the binary classification model $\tilde{P}$ with
-
-  - extended features $\tilde{X} = (X, \operatorname{mode}(P_X))$,
-  - binary targets $\tilde{Y} = [Y = \operatorname{mode}(P_X)]$, and
-  - predictions $\tilde{P}_{\tilde{X}} = \tilde{P}_{(X, \operatorname{mode}(P_X))} = \operatorname{Bernoulli}\big(P_{X}(\{\operatorname{mode}(P_X)\})\big)$.
-
+That is, instead of the three-class classification model $P$ we study a binary classification model with extended features ($X$ and the mode of $P_X$) and binary targets (1 if $Y$ is equal to the mode of $P_X$, and 0 otherwise).
+The predictions of this binary model are Bernoulli distributions whose success probabilities are the confidence estimates for the mode of $P_X$, i.e., $\max_y P_X(\{y\})$.
 Thus we only analyze calibration of the probabilities predicted for the most confident class.
 Other less common calibration lenses [@Vaicenavicius:2019] can be used to focus on different aspects of the model.
 
@@ -360,7 +354,7 @@ Both functions, `reliability` and `reliabilityplot`, support the same arguments 
 
 ```{julia}
 #| label: fig-examples-reldiag
-#| fig-cap: "Reliability diagram of the calibrated dataset without customizations such as labels, using the default settings of [ReliabilityDiagrams.jl]{.pkg} and the plotting packages."
+#| fig-cap: "Reliability diagram of the calibrated dataset using the default settings of [ReliabilityDiagrams.jl]{.pkg} and the plotting packages."
 #| fig-subcap:
 #|   - "[Makie.jl]{.pkg}"
 #|   - "[Plots.jl]{.pkg}"
@@ -378,7 +372,7 @@ display(reliabilityplot(ps_binary, ys_binary))
 
 The resulting Figures [-@fig-examples-reldiag-1] and [-@fig-examples-reldiag-2] show that the default reliability diagrams generated by [ReliabilityDiagrams.jl]{.pkg} differ from examples found in the literature [see, e.g., the discussion in @Broecker:2007]:
 
- 1. By default, the average devation of the empirical frequencies from the confidence estimates is plotted instead of the average empirical frequencies as in classic reliability diagrams [@Vaicenavicius:2019].
+ 1. By default, the average deviation of the empirical frequencies from the confidence estimates is plotted instead of the average empirical frequencies as in classic reliability diagrams [@Vaicenavicius:2019].
     In our opinion, often this makes it easier to compare deviations for different predictions
     The average empirical frequencies can be plotted with the keyword argument `deviation = false` (default value `true`).
  2. By default, consistency bars are added that cover the range of the deviations that are likely to be observed with 95% probability *if* the model were to be calibrated [@Broecker:2007].
@@ -391,7 +385,7 @@ The resulting Figures [-@fig-examples-reldiag-1] and [-@fig-examples-reldiag-2] 
     The binning scheme and the number of bins can be tuned by specifying the `binning` keyword argument (default value `EqualMass(; n=10)`).
     For instance, with `binning = EqualSize(; n=10)` samples are binned into 10 bins of uniform size which is a common choice in the literature [@Broecker:2007].
 
-The motivation for consistency bars is that reliability diagrams can be difficult to interpret and sometimes even be misleading due to the randomness of the validation data [see, e.g., the example in @Broecker:2007].
+The motivation for consistency bars is that reliability diagrams can be difficult to interpret and sometimes even be misleading due to the randomness of the validation data [see, e.g., the example by @Broecker:2007].
 This problem can also be observed in our example if we compare the default reliability diagrams in [ReliabilityDiagrams.jl]{.pkg} with classic reliability diagrams without consistency bars.
 
 ```{julia}
@@ -405,7 +399,14 @@ let ps_binary = ps_binary, qs_binary = qs_binary, ys_binary = ys_binary
     ax1 = Axis(fig[1, 1]; xticksvisible=false, xticklabelsvisible=false, title="calibrated")
     ablines!(ax1, 0, 1; color=:black, linestyle=:dash, label="ideal")
     reliability!(
-        ax1, ps_binary, ys_binary; deviation=false, consistencybars=nothing, label="data"
+        ax1,
+        ps_binary,
+        ys_binary;
+        deviation=false,
+        consistencybars=nothing,
+        xlabel="",
+        ylabel="",
+        label="data",
     )
 
     ax2 = Axis(
@@ -418,16 +419,23 @@ let ps_binary = ps_binary, qs_binary = qs_binary, ys_binary = ys_binary
     )
     ablines!(ax2, 0, 1; color=:black, linestyle=:dash, label="ideal")
     reliability!(
-        ax2, qs_binary, ys_binary; deviation=false, consistencybars=nothing, label="data"
+        ax2,
+        qs_binary,
+        ys_binary;
+        deviation=false,
+        consistencybars=nothing,
+        xlabel="",
+        ylabel="",
+        label="data",
     )
 
     ax3 = Axis(fig[2, 1];)
     hlines!(ax3, 0; color=:black, linestyle=:dash, label="ideal")
-    reliability!(ax3, ps_binary, ys_binary; label="data")
+    reliability!(ax3, ps_binary, ys_binary; xlabel="", ylabel="", label="data")
 
     ax4 = Axis(fig[2, 2]; yticksvisible=false, yticklabelsvisible=false)
     hlines!(ax4, 0; color=:black, linestyle=:dash, label="ideal")
-    reliability!(ax4, qs_binary, ys_binary; label="data")
+    reliability!(ax4, qs_binary, ys_binary; xlabel="", ylabel="", label="data")
 
     # Ensure that x- and y-axes are the same.
     linkxaxes!(ax1, ax2, ax3, ax4)
@@ -440,7 +448,7 @@ let ps_binary = ps_binary, qs_binary = qs_binary, ys_binary = ys_binary
 
     Label(
         fig[1, 0],
-        "empirical frequencies";
+        "empirical frequency";
         valign=:center,
         rotation=pi / 2,
         padding=(0, 5, 0, 0),
@@ -448,7 +456,7 @@ let ps_binary = ps_binary, qs_binary = qs_binary, ys_binary = ys_binary
     )
     Label(
         fig[2, 0],
-        "deviation";
+        "empirical deviation";
         valign=:center,
         rotation=pi / 2,
         padding=(0, 5, 0, 0),
@@ -543,7 +551,8 @@ The computational complexity of the estimator is $\mathcal{O}(\lfloor n / m \rfl
 Thus if the block size is fixed (e.g., $m = 2$), the computational complexity is $\mathcal{O}(n)$.
 On the other hand, if there is only a single block with all samples ($m = n$), it is $\mathcal{O}(n^2)$ and hence quadratic in the number of samples.
 Generally, larger values of $m$ increase the computational complexity of the estimator but at the same time reduce its variance.
-A possible trade-off is the choice $m(n) = [\sqrt{n}]$ where $[\cdot]$ denotes the closest integer [@Zaremba:2013].
+If $n$ is not very large, we thus recommend $m = n$ as a default choice.
+If the computational cost is found to be prohibitive, the choice $m(n) = [\sqrt{n}]$ where $[\cdot]$ denotes the closest integer [@Zaremba:2013] is a possible trade-off.
 
 Let us return to our example.
 For simplicity, we choose a tensor product kernel $k$ with a white kernel $k_Y(y, y') = \delta_{y,y'}$ on the space of targets and a Gaussian kernel $k_P$ with length scale $0.1$ on the space of predicted categorical distributions.
@@ -722,7 +731,7 @@ end
 
 As @fig-skce-estimates shows, the estimates also depend on the chosen type of kernels and in our example even more importantly on the chosen length scale.
 Regardless of the choice of kernel, for length scales of 0.1 and 1 the estimates of the uncalibrated model are more than one order of magnitude larger than the ones for the calibrated model.
-However, if the length scale is small (0.001) or large (10.0), there is no clear difference between the estimates of the two models.
+However, if the length scale is too small (0.001) or too large (10.0), there is no clear difference between the estimates of the two models.
 
 For all considered choices of $k_P$, in these extreme cases $k_P(p, p')$ converges to $\delta_{p, p'}$ (small length scale) and 1 (large length scale).
 Typically predictions in the validation dataset are pairwise different, and hence the unbiased estimators of the squared KCE will converge to 0 if the length scale of $k_P$ converges to 0, regardless of whether the model is calibrated or not.
@@ -773,7 +782,8 @@ For classification models, the predictions $P_X$ can be identified with vectors 
 Similar to the kernel in the KCE, distance $d$ is a design choice of the ECE.
 
 The ECE is arguably more intuitive than the KCE, which probably contributes to its popularity.
-Unfortunately, the estimation of the ECE from a finite data set of predictions and observed outcomes is challenging as, in contrast to the estimators of the squared KCE, typically it requires to estimate the conditional distribution $\Prob(Y \,|\, P_X)$---even more so if $Y$ is a non-binary, real-valued, or possibly even higher-dimensional random variable.
+Unfortunately, the estimation of the ECE from a finite data set of predictions and observed outcomes is challenging as, in contrast to the estimators of the squared KCE, typically it requires to estimate the conditional distribution $\Prob(Y \,|\, P_X)$.
+This is difficult in particular if $Y$ is a non-binary, real-valued, or possibly even higher-dimensional random variable.
 Common estimators of the ECE use histogram regression estimates of $\Prob(Y \,|\, P_X)$ and are biased and inconsistent [@Vaicenavicius:2019].
 In contrast to the biased estimators of the squared KCE, estimators of the ECE can be found to be both positively and negatively biased [@Widmann:2019].
 
@@ -866,7 +876,7 @@ end
 ```
 
 Unsurprisingly, @fig-ece-estimates shows that the estimates depend on the number of bins and the chosen distance measure.
-Generally, the estimates of the uncalibrated model seem to be greater than the ones for the calibrated model which suggests that indeed the uncalibrated model is "less calibrated" than the calibrated one.
+Generally, the estimates of the uncalibrated model seem to be larger than the ones for the calibrated model which suggests that it indeed is "less calibrated" than the calibrated one.
 However, for the squared Euclidean distance the difference is visually less apparent.
 As in @fig-ece-estimates, usually even for calibrated models the estimates are positve, which makes it more challenging to assess whether a model is calibrated or not based on the ECE estimates.
 
@@ -874,7 +884,7 @@ As in @fig-ece-estimates, usually even for calibrated models the estimates are p
 
 A limitation of calibration errors is that their scale is not necessarily meaningful:
 A calibration error of zero corresponds to a calibrated model but non-zero values are not readily interpretable---it is unclear if they indicate a slightly or largely miscalibrated model.
-Moreover, as observed also in Figures [-@fig-skce-estimates] and [-@fig-ece-estimates], usually estimates of calibration errors are non-zero even if the model is calibrated.
+Moreover, as observed also in Figures [-@fig-skce-estimates] and [-@fig-ece-estimates], usually *estimates* of calibration errors are non-zero even if the model is calibrated.
 Additionally, one has to be careful when comparing calibration error estimates of two different models:
 Are the differences and trends real or caused by randomness in the validation data set?
 
@@ -939,7 +949,7 @@ pvalue(test; bootstrap_iters=10_000)
 :::
 
 Generally, [CalibrationTests.jl]{.pkg}, and hence [CalibrationAnalysis.jl]{.pkg}, support all tests and $p$ value estimations discussed above.
-For the number of samples ($n = 1000$) and the kernel chosen here, the more powerful yet computationally more expensive asymptotic test can be performed in around 1 second on a dual-core computer (see computational details below):
+For the number of samples ($n = 1000$) and the kernel chosen here, the more powerful yet computationally more expensive asymptotic test can be performed fast (see computational details below):
 
 :::{.codechunk}
 
@@ -1055,7 +1065,7 @@ Such heuristics are planned to be added to [CalibrationTests.jl]{.pkg} in a futu
 ## Case study: Classification models of penguin species
 
 In the previous sections we have described the main functionality of [CalibrationAnalysis.jl]{.pkg} and illustrated it using a synthetic dataset.
-In this section we demonstrate how [CalibrationAnalysis.jl]{.pkg} can be applied to a real-world problem.
+In this section we demonstrate how [CalibrationAnalysis.jl]{.pkg} can be applied to a simple classification problem with real data.
 
 We study the calibration of three multi-class classification models that predict categorical distributions of penguins species (`Adelie`, `Chinstrap`, and `Gentoo`) from measurements of flipper length and body mass.
 The measurements for training and evaluating the models are taken from the Palmer penguin dataset [@PalmerPenguins.jl-2014]:
@@ -1133,7 +1143,7 @@ end
 
 On the training data we learn three different classification models:
 A logistic regression model (`LogReg`), a Gaussian naive Bayes classifier (`NaiveBayes`), and a classification tree model based on boosting (`XGBoost`).
-We want to emphasize that we do not intend to make any general comments about the calibration of these model classes.
+We want to emphasize that we do not intend to make any general comments about the calibration of these model classes but only want to illustrate how [CalibrationAnalysis.jl]{.pkg} can be used for comparing actual machine learning models.
 Thus to simplify the presentation, we do not perform any model tuning but only use the default hyperparameters in the [MLJ.jl]{.pkg} machine learning framework.
 
 ```{julia}
@@ -1240,7 +1250,7 @@ Generally, `XGBoost` seems to be the most accurate model.
 
 ### Reliability diagrams
 
-The error rate does not convey any information about the confidence estimates for each mode, yet alone the predicted categorical distributions.
+The error rate does not convey any information about the confidence estimates for each mode.
 To obtain a better understanding of the predicted probabilities, we plot histograms of the confidence estimates of the models in @fig-penguins-confidence.
 Note that these are projections of the predicted categorical distribution and hence capture only a sub-aspect of the models.
 
@@ -1420,6 +1430,8 @@ let predicted_species = predicted_species[validxs, :],
             df.confidence,
             df.predicted_species .== df.species;
             binning=EqualMass(; n=15),
+            xlabel="",
+            ylabel="",
             label="data",
         )
         hlines!(ax, 0; color=:black, linestyle=:dash, label="ideal")
@@ -1439,7 +1451,13 @@ let predicted_species = predicted_species[validxs, :],
 
     # Add common label to x and y axes
     Label(fig[4, 1:3], "confidence"; valign=:top, padding=(0, 0, 0, 5))
-    Label(fig[1:3, 1], "deviation"; valign=:center, padding=(0, 5, 0, 0), rotation=π / 2)
+    Label(
+        fig[1:3, 1],
+        "empirical deviation";
+        valign=:center,
+        padding=(0, 5, 0, 0),
+        rotation=π / 2,
+    )
     colgap!(fig.layout, 1, 0)
     colgap!(fig.layout, 2, 0)
     rowgap!(fig.layout, 3, 0)
@@ -1664,7 +1682,7 @@ Markdown.parse(
 ### Calibration tests
 
 One problem with the analysis based on the calibration error estimates shown in @fig-penguins-skce-estimates is that we only see that the estimates for `XGBoost` are *relatively* large compared with `LogReg` and `NaiveBayes`.
-However, we don't know if `LogReg` and `NaiveBayes` are actually calibrated and `XGBoost` uncalibrated, or if the differences can be explained, e.g., by the different distributions of predictions.
+However, we do not know if `LogReg` and `NaiveBayes` are actually calibrated and `XGBoost` uncalibrated, or if the differences can be explained, e.g., by the different distributions of predictions.
 To improve interpretability and to simplify the model comparison, we perform calibration tests for all models.
 
 We estimate the asymptotic $p$ values with 10000 bootstrap iterations, based on the same predictions, the same kernel, and the same set of length scales as in @fig-penguins-skce-estimates.
@@ -1809,7 +1827,8 @@ Markdown.parse(
 
 The decreased $p$ value estimates for low-entropy predictions match our observations in @fig-penguins-skce-estimates.
 There calibration error estimates on the low-entropy predictions are larger than estimates on the full validation dataset.
-However, in @fig-penguins-skce-estimates the errors seem small also for low-entropy predictions, in particular compared with the estimates for `XGBoost`, and arguably it is impossible to notice that the calibration errors are unexpectedly large for a calibrated model solely on @fig-penguins-skce-estimates. One caveat though is the very small number of low-entropy predictions of `LogReg` and `NaiveBayes` which increases the variance of the $p$ value estimates.
+However, in @fig-penguins-skce-estimates the errors seem small also for low-entropy predictions, in particular compared with the estimates for `XGBoost`, and arguably it is impossible to notice that the calibration errors are unexpectedly large for a calibrated model solely on @fig-penguins-skce-estimates.
+One caveat though is the very small number of low-entropy predictions of `LogReg` and `NaiveBayes` which decreases the power of the calibration tests and might even make the asymptotic approximation invalid.
 Additionally, the small length scales selected by the median heuristic for the low-entropy predictions of `LogReg` and `NaiveBayes` indicate that possibly even length scales of 0.1 are inappropriately large.
 
 ## Summary and discussion {#sec-summary}
@@ -1820,7 +1839,7 @@ The presented software package supports visual inspections, estimations, and hyp
 Importantly, the provided tools do not only cover binary classification models but also models for multi-class classification and regression problems.
 The [Python]{.proglang} package [pycalibration]{.pkg} and the [R]{.proglang} package [rcalibration]{.pkg} provide interfaces to [CalibrationAnalysis.jl]{.pkg} for users that are not familiar with the [Julia]{.proglang} programming language.
 
-We applied the software framework both on synthetic examples with datasets from a calibrated and an uncalibrated model and for analyzing different models for a real-world classification problem.
+We applied the software framework both on synthetic examples with datasets from a calibrated and an uncalibrated model and for analyzing different models for a classification problem with real data.
 The case study showed that reliability diagrams and calibration errors can be valuable for assessing calibration but one should be aware off their shortcomings and possibly misleading interpretations.
 We demonstrated that some of these issues are fixed by calibration tests.
 In particular, calibration tests have a clear interpretation with a meaningful scale.
@@ -1852,7 +1871,7 @@ They can be used to reproduce the results in this paper.
 
 ## Acknowledgments {.unnumbered}
 
-This work was financially supported by the Centre for Interdisciplinary Mathematics (CIM) at Uppsala University, Sweden, by the Swedish Research Council via the projects *Counterfactual Prediction Methods for Heterogeneous Populations* (contract number: 2018-05040) and *Handling Uncertainty in Machine Learning Systems* (contract number: 2020-04122), by the Swedish Foundation for Strategic Research via the project *ASSEMBLE* (contract number: RIT15-0012), by the Wallenberg AI, Autonomous Systems and Software Program (WASP) funded by the Knut and Alice Wallenberg Foundation, and by ELLIIT.
+This work was financially supported by the Centre for Interdisciplinary Mathematics (CIM) at Uppsala University, Sweden, by the Swedish Research Council via the projects *Counterfactual Prediction Methods for Heterogeneous Populations* (contract number: 2018-05040) and *Handling Uncertainty in Machine Learning Systems* (contract number: 2020-04122), by the Swedish Foundation for Strategic Research via the project *ASSEMBLE* (contract number: RIT15-0012), by the Wallenberg AI, Autonomous Systems and Software Program (WASP) funded by the Knut and Alice Wallenberg Foundation, and by the Excellence Center at Linköping--Lund in Information Technology (ELLIIT).
 
 ## References {.unnumbered}
 
