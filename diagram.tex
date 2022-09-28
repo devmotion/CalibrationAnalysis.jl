@@ -6,6 +6,7 @@
       nodes={draw, minimum size=2em,anchor=center},
       nodes in empty cells,
     },
+    decoration={brace},
   ]
   \matrix (A) [mymatrix, font={\small}] {%
     1 & 2 & \cdots & (b - 1)m + 1 & (b - 1)m + 2 & \cdots & bm - 1 & bm & \cdots & \lfloor n / m \rfloor m \\
@@ -25,6 +26,8 @@
     & (b - 1)m + 1 & (b - 1) m + 2 & \rvdots & bm - 1 & bm \\
   };
   \node [yshift=1em, font={\bfseries}] at (mymat-1-4.north) {unbiased};
+  \draw [decorate,thick] (mymat.west|-mymat-5-1.south west) -- node[left=2pt] {$i$} (mymat.west|-mymat-1-1.north west);
+  \draw [decorate,thick] (mymat.south-|mymat-1-6.north east) -- node[below=2pt] {$j$} (mymat.south-|mymat-1-2.north west);
   \draw (A-1-4.south west) -- (mymat-1-2.north west);
   \draw (A-1-8.south east) -- (mymat-1-6.north east);
   \matrix (mymat2) [mymatrix,
@@ -40,6 +43,7 @@
     (b - 1)m + 1 & (b - 1) m + 2 & \rvdots & bm - 1 & bm \\
   };
   \node [yshift=1em, font={\bfseries}] at (mymat2-1-3.north) {biased};
+  \draw [decorate,thick] (mymat2.south-|mymat2-1-5.north east) -- node[below=2pt] {$j$} (mymat2.south-|mymat2-1-1.north west);
   \draw (A-1-4.south west) -- (mymat2-1-1.north west);
   \draw (A-1-8.south east) -- (mymat2-1-5.north east);
 \begin{scope}[on background layer]
@@ -47,7 +51,6 @@
     \node[fit=(mymat-2-4)(mymat-2-6), fill=gray!20, inner sep=0pt] {};
     \node[fit=(mymat-3-5)(mymat-3-6), fill=gray!20, inner sep=0pt] {};
     \node[fit=(mymat-4-6), fill=gray!20, inner sep=0pt] {};
-    %\node[fit=(A-1-4)(A-1-8), fill=gray!20, inner sep=0pt] {};
     \node[fit=(mymat2-1-1)(mymat2-5-5), fill=gray!20, inner sep=0pt] {};
 \end{scope}
 \end{tikzpicture}
