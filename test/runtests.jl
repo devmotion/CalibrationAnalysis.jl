@@ -45,6 +45,7 @@ using Test
 
         # CalibrationTests.jl
         @test pvalue(StableRNG(1447), ConsistencyTest(ece, confidence, outcomes)) < 0.05
-        @test pvalue(StableRNG(9483), AsymptoticSKCETest(kernel, confidence, outcomes)) < 0.05
+        @test pvalue(StableRNG(9483), AsymptoticSKCETest(kernel, confidence, outcomes)) <
+            0.05
     end
 end
