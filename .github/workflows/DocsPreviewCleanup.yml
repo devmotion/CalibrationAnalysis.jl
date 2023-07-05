@@ -7,11 +7,13 @@ on:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    matrix:
+      branch: ['gh-pages', 'multidocs']
     steps:
       - name: Checkout gh-pages branch
         uses: actions/checkout@v3
         with:
-          ref: gh-pages
+          ref: ${{ matrix.branch }}
       - name: Delete preview and history + push changes
         run: |
             if [ -d "previews/PR$PRNUM" ]; then

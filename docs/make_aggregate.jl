@@ -29,5 +29,6 @@ mktempdir() do clonedir
         search_engine=MultiDocumenter.SearchConfig(;
             index_versions=["stable"], engine=MultiDocumenter.FlexSearch
         ),
+        rootpath = get(ENV, "MULTIDOCS_ROOTPATH", "/"),
     )
 end

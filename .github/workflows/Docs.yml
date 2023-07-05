@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: julia-actions/setup-julia@v1
-              with:
+        with:
           version: '1'
       - uses: julia-actions/cache@v1
       - uses: julia-actions/julia-buildpkg@v1
@@ -58,7 +58,10 @@ jobs:
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
       - run: julia --project=docs docs/make_aggregate.jl
+        env:
+          MULTIDOCS_ROOTPATH: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
       - uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: multidocs
           folder: docs/build
+          target_folder: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
