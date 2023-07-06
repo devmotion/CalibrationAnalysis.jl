@@ -64,4 +64,4 @@ jobs:
         with:
           branch: multidocs
           folder: docs/build
-          target_folder: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
+          target-folder: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
