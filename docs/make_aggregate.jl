@@ -7,6 +7,7 @@ mktempdir() do clonedir
             path="Overview",
             name="Home",
             giturl="https://github.com/devmotion/CalibrationAnalysis.jl.git",
+            branch="docs",
         ),
         MultiDocumenter.MultiDocRef(;
             upstream=joinpath(clonedir, "CalibrationErrors"),

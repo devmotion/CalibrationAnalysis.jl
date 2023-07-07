@@ -45,7 +45,16 @@ jobs:
       statuses: write
     name: Multi-Documentation
     runs-on: ubuntu-latest
+    env:
+      MULTIDOCS_ROOTPATH: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
     steps:
+      - uses: dobladov/action-status@v2
+        with: 
+          authToken: ${{secrets.GITHUB_TOKEN}}
+          context: 'multidocumenter/deploy'
+          description: 'Waiting for MultiDocumenter build'
+          state: 'pending'
+          sha: ${{github.event.pull_request.head.sha || github.sha}}
       - uses: actions/checkout@v3
       - uses: julia-actions/setup-julia@v1
         with:
@@ -58,10 +67,25 @@ jobs:
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
       - run: julia --project=docs docs/make_aggregate.jl
-        env:
-          MULTIDOCS_ROOTPATH: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
       - uses: JamesIves/github-pages-deploy-action@v4
         with:
-          branch: multidocs
+          branch: gh-pages
           folder: docs/build
-          target-folder: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
+          target-folder: ${{env.MULTIDOCS_ROOTPATH}}
+      - uses: dobladov/action-status@v2
+        if: success()
+        with:
+          authToken: ${{secrets.GITHUB_TOKEN}}
+          context: 'multidocumenter/deploy'
+          description: 'MultiDocumenter build succeeded'
+          target_url: 'https://devmotion.github.io/CalibrationAnalysis.jl${{env.MULTIDOCS_ROOTPATH}}'
+          state: 'success'
+          sha: ${{github.event.pull_request.head.sha || github.sha}}
+      - uses: dobladov/action-status@v2
+        if: failure()
+        with:
+          authToken: ${{secrets.GITHUB_TOKEN}}
+          context: 'multidocumenter/deploy'
+          description: 'MultiDocumenter build failed'
+          state: 'failure'
+          sha: ${{github.event.pull_request.head.sha || github.sha}}
