@@ -21,7 +21,5 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/devmotion/CalibrationAnalysis.jl",
-    branch="docs",
-    devbranch="main",
+    repo="github.com/devmotion/CalibrationAnalysis.jl", branch="docs", devbranch="main"
 )
