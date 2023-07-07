@@ -65,7 +65,7 @@ jobs:
           branch: gh-pages
           folder: docs/build
           target-folder: ${{env.MULTIDOCS_ROOTPATH}}
-      - uses: dobladov/github-status-action@v2
+      - uses: guibranco/github-status-action-v2@v1
         if: success()
         with:
           authToken: ${{secrets.GITHUB_TOKEN}}
@@ -74,7 +74,7 @@ jobs:
           target_url: 'https://devmotion.github.io/CalibrationAnalysis.jl${{env.MULTIDOCS_ROOTPATH}}'
           state: 'success'
           sha: ${{github.event.pull_request.head.sha || github.sha}}
-      - uses: dobladov/github-status-action@v2
+      - uses: guibranco/github-status-action-v2@v1
         if: failure()
         with:
           authToken: ${{secrets.GITHUB_TOKEN}}
