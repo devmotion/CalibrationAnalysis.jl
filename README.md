@@ -8,6 +8,7 @@ Analysis of calibration of probabilistic predictive models.
 [![Coverage](https://codecov.io/gh/devmotion/CalibrationAnalysis.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/devmotion/CalibrationAnalysis.jl)
 [![Coverage](https://coveralls.io/repos/github/devmotion/CalibrationAnalysis.jl/badge.svg?branch=main)](https://coveralls.io/github/devmotion/CalibrationAnalysis.jl?branch=main)
 [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle)
+[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 This is a suite for analyzing calibration of probabilistic predictive models written in Julia.
 
@@ -22,7 +23,7 @@ The package supports:
 
 [![Calibration analysis of probabilistic models in Julia](http://img.youtube.com/vi/PrLsXFvwzuA/0.jpg)](http://www.youtube.com/watch?v=PrLsXFvwzuA)
 
-The slides of the talk are available as [Pluto notebook](https://talks.widmann.dev/2021/07/calibration/).
+The slides of the talk are available as [Pluto notebook](https://talks.widmann.dev/2021/07/Calibration/).
 
 ## Citing
 

@@ -19,7 +19,7 @@ The package supports:
 </center>
 ```
 
-The slides of the talk are available as [Pluto notebook](https://talks.widmann.dev/2021/07/calibration/).
+The slides of the talk are available as [Pluto notebook](https://talks.widmann.dev/2021/07/Calibration/).
 
 ## Citing
 
