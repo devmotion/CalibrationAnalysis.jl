@@ -23,6 +23,5 @@ makedocs(;
 deploydocs(;
     repo="github.com/devmotion/CalibrationAnalysis.jl",
     branch="docs",
-    push_preview=true,
     devbranch="main",
 )

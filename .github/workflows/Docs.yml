@@ -48,13 +48,6 @@ jobs:
     env:
       MULTIDOCS_ROOTPATH: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
     steps:
-      - uses: dobladov/action-status@v2
-        with: 
-          authToken: ${{secrets.GITHUB_TOKEN}}
-          context: 'multidocumenter/deploy'
-          description: 'Waiting for MultiDocumenter build'
-          state: 'pending'
-          sha: ${{github.event.pull_request.head.sha || github.sha}}
       - uses: actions/checkout@v3
       - uses: julia-actions/setup-julia@v1
         with:
@@ -72,7 +65,7 @@ jobs:
           branch: gh-pages
           folder: docs/build
           target-folder: ${{env.MULTIDOCS_ROOTPATH}}
-      - uses: dobladov/action-status@v2
+      - uses: dobladov/github-status-action@v2
         if: success()
         with:
           authToken: ${{secrets.GITHUB_TOKEN}}
@@ -81,7 +74,7 @@ jobs:
           target_url: 'https://devmotion.github.io/CalibrationAnalysis.jl${{env.MULTIDOCS_ROOTPATH}}'
           state: 'success'
           sha: ${{github.event.pull_request.head.sha || github.sha}}
-      - uses: dobladov/action-status@v2
+      - uses: dobladov/github-status-action@v2
         if: failure()
         with:
           authToken: ${{secrets.GITHUB_TOKEN}}
