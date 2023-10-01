@@ -23,7 +23,7 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v1
         with:
           version: '1'
@@ -48,7 +48,7 @@ jobs:
     env:
       MULTIDOCS_ROOTPATH: ${{ github.event_name == 'pull_request' && format('/previews/PR{0}', github.event.number) || '/' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v1
         with:
           version: '1'
