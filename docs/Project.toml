@@ -4,4 +4,4 @@ MultiDocumenter = "87ed4bf0-c935-4a67-83c3-2a03bee4197c"
 
 [compat]
 Documenter = "0.27"
-MultiDocumenter = "0.6"
+MultiDocumenter = "0.6, 0.7"
